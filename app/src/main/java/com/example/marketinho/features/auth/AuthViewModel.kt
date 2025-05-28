@@ -1,144 +1,142 @@
-// marketinho/features/auth/AuthViewModel.kt
-
 package com.example.marketinho.features.auth
 
 import android.app.Application
+import android.content.Context
+import android.content.Intent
+import android.util.Log
+import androidx.activity.result.ActivityResultLauncher
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException // Importante para erros do Google Sign-In
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthInvalidUserException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
-import com.google.firebase.auth.FirebaseAuthWeakPasswordException
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val firebaseAuth = FirebaseAuth.getInstance()
-
+    private val auth = FirebaseAuth.getInstance()
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage
 
-    private val _isAuthenticated = MutableStateFlow(false)
+    private val _isAuthenticated = MutableStateFlow(auth.currentUser != null)
     val isAuthenticated: StateFlow<Boolean> = _isAuthenticated
 
-    init {
-        // Observa mudanças no estado de autenticação do Firebase
-        firebaseAuth.addAuthStateListener { auth ->
-            _isAuthenticated.value = auth.currentUser != null
-        }
-    }
-
+    // Métodos de autenticação existentes (Email/Senha)
     fun login(email: String, password: String) {
-        if (email.isBlank() || password.isBlank()) {
-            _errorMessage.value = "Por favor, preencha todos os campos."
-            return
-        }
-
-        _isLoading.value = true
-        _errorMessage.value = null // Limpa qualquer erro anterior
-
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                firebaseAuth.signInWithEmailAndPassword(email, password)
-                    .addOnCompleteListener { task ->
-                        _isLoading.value = false
-                        if (task.isSuccessful) {
-                            // Login bem-sucedido, o listener do authState já atualizou _isAuthenticated
-                            // Não precisamos fazer mais nada aqui além de garantir que isLoading seja false
-                        } else {
-                            _errorMessage.value = handleFirebaseException(task.exception)
-                        }
-                    }
+                auth.signInWithEmailAndPassword(email, password).await()
+                _isAuthenticated.value = true
+                _errorMessage.value = null
             } catch (e: Exception) {
+                _errorMessage.value = e.localizedMessage
+                _isAuthenticated.value = false
+            } finally {
                 _isLoading.value = false
-                _errorMessage.value = "Ocorreu um erro inesperado: ${e.message}"
             }
         }
     }
 
     fun register(email: String, password: String) {
-        if (email.isBlank() || password.isBlank()) {
-            _errorMessage.value = "Por favor, preencha todos os campos."
-            return
-        }
-        if (password.length < 6) {
-            _errorMessage.value = "A senha deve ter no mínimo 6 caracteres."
-            return
-        }
-
-        _isLoading.value = true
-        _errorMessage.value = null
-
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                firebaseAuth.createUserWithEmailAndPassword(email, password)
-                    .addOnCompleteListener { task ->
-                        _isLoading.value = false
-                        if (task.isSuccessful) {
-                            // Cadastro bem-sucedido, o listener do authState já atualizou _isAuthenticated
-                            // Opcional: Enviar e-mail de verificação
-                            // firebaseAuth.currentUser?.sendEmailVerification()
-                            // _errorMessage.value = "Cadastro realizado! Verifique seu e-mail para ativar a conta."
-                        } else {
-                            _errorMessage.value = handleFirebaseException(task.exception)
-                        }
-                    }
+                auth.createUserWithEmailAndPassword(email, password).await()
+                _isAuthenticated.value = true
+                _errorMessage.value = null
             } catch (e: Exception) {
+                _errorMessage.value = e.localizedMessage
+                _isAuthenticated.value = false
+            } finally {
                 _isLoading.value = false
-                _errorMessage.value = "Ocorreu um erro inesperado: ${e.message}"
+            }
+        }
+    }
+
+    fun sendPasswordResetEmail(email: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                auth.sendPasswordResetEmail(email).await()
+                _errorMessage.value = "E-mail de redefinição de senha enviado para $email"
+            } catch (e: Exception) {
+                _errorMessage.value = e.localizedMessage
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
     fun signOut() {
-        firebaseAuth.signOut()
-        // O listener do authStateListener vai capturar essa mudança e atualizar _isAuthenticated para false
+        auth.signOut()
+        _isAuthenticated.value = false
     }
 
     fun clearErrorMessage() {
         _errorMessage.value = null
     }
-    // Adicione esta função dentro do AuthViewModel.kt
-    fun sendPasswordResetEmail(email: String) {
-        if (email.isBlank()) {
-            _errorMessage.value = "Por favor, digite seu e-mail para enviar o link de redefinição."
-            return
-        }
 
-        _isLoading.value = true
-        _errorMessage.value = null
+    // ==============================================================
+    // NOVOS MÉTODOS PARA GOOGLE SIGN-IN
+    // ==============================================================
 
-        viewModelScope.launch {
-            try {
-                firebaseAuth.sendPasswordResetEmail(email)
-                    .addOnCompleteListener { task ->
-                        _isLoading.value = false
-                        if (task.isSuccessful) {
-                            // Não exiba Toast aqui, o LoginScreen já o fará
-                        } else {
-                            _errorMessage.value = handleFirebaseException(task.exception)
-                        }
-                    }
-            } catch (e: Exception) {
-                _isLoading.value = false
-                _errorMessage.value = "Ocorreu um erro inesperado ao enviar o e-mail: ${e.message}"
-            }
-        }
+    // Função para obter o GoogleSignInClient
+    // R.string.default_web_client_id é crucial e vem do google-services.json
+    fun getGoogleSignInClient(context: Context): GoogleSignInClient {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(context.getString(com.example.marketinho.R.string.default_web_client_id))
+            .requestEmail()
+            .build()
+        return GoogleSignIn.getClient(context, gso)
     }
 
-    private fun handleFirebaseException(exception: Exception?): String {
-        return when (exception) {
-            is FirebaseAuthInvalidUserException -> "Usuário não encontrado ou desabilitado."
-            is FirebaseAuthInvalidCredentialsException -> "Credenciais inválidas. Verifique seu e-mail e senha."
-            is FirebaseAuthWeakPasswordException -> "Senha muito fraca. Use pelo menos 6 caracteres."
-            is FirebaseAuthUserCollisionException -> "Este e-mail já está em uso."
-            else -> "Erro de autenticação: ${exception?.localizedMessage ?: "Ocorreu um erro desconhecido."}"
+    // Função para iniciar o fluxo de login do Google
+    // Esta função apenas lança a intent de login do Google
+    fun startGoogleSignInFlow(signInClient: GoogleSignInClient, launcher: ActivityResultLauncher<Intent>) {
+        _isLoading.value = true
+        val signInIntent = signInClient.signInIntent
+        launcher.launch(signInIntent)
+    }
+
+    // Função para lidar com o resultado do login do Google e autenticar no Firebase
+    fun handleGoogleSignInResult(data: Intent?) {
+        viewModelScope.launch {
+            try {
+                val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+                // Pega o account do Google Sign-In. Se houver erro, ApiException será lançada.
+                val account = task.getResult(ApiException::class.java)
+
+                // Cria uma credencial Firebase com o ID Token do Google
+                val credential = GoogleAuthProvider.getCredential(account.idToken, null)
+
+                // Autentica no Firebase com a credencial do Google
+                auth.signInWithCredential(credential).await()
+
+                _isAuthenticated.value = true
+                _errorMessage.value = null
+            } catch (e: ApiException) {
+                // Erros específicos do Google Sign-In (ex: usuário cancelou, rede, erro de configuração)
+                Log.e("AuthViewModel", "Google Sign-In failed: ${e.statusCode} - ${e.message}", e)
+                _errorMessage.value = "Falha no login com Google: ${e.localizedMessage ?: "Erro desconhecido"}"
+                _isAuthenticated.value = false
+            } catch (e: Exception) {
+                // Outros erros (ex: erro do Firebase após obter a credencial do Google)
+                Log.e("AuthViewModel", "Firebase Google Auth failed: ${e.message}", e)
+                _errorMessage.value = "Falha na autenticação Firebase: ${e.localizedMessage ?: "Erro desconhecido"}"
+                _isAuthenticated.value = false
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 }

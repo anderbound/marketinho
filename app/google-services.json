@@ -12,7 +12,20 @@
           "package_name": "com.example.marketinho"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "812598233478-hljsiko5il36me7rgt3fimr9qihrrt9i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.marketinho",
+            "certificate_hash": "48ad7b11c44b09bb01ad937e282f6cc3699df92b"
+          }
+        },
+        {
+          "client_id": "812598233478-1s3nuakk7pikm02748crrnn1k807evg6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD3nWL48xkGjaAqWiTjVuOZZNWMVuiwsmg"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "812598233478-1s3nuakk7pikm02748crrnn1k807evg6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
