@@ -1,1 +1,59 @@
 /build
+# Built application files
+*.apk
+*.ap_
+*.aab
+*.aar
+*.so
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+build/
+.gradle/
+.idea/libraries/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/runConfigurations/
+.idea/compiler.xml
+.idea/jarRepositories.xml
+local.properties
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+crash_reports/
+data-binding-enabled/
+data-binding-base-classes/
+data-binding-gen-classes/
+generated/
+keystore/
+proguard/
+report/
+test-results/
+tmp/
+*.iml
+*.ipr
+*.iws
+*.bak
+*.log
+.settings/
+.project
+.classpath
+gradle-wrapper/
+gradle/wrapper/gradle-wrapper.properties
+gradlew
+gradlew.bat
+
+# Android Studio specific files
+.idea/
+.vscode/ # Se você usa VS Code para algo relacionado
+
+# For Room database generated files
+*.kapt_generated
+*.kt_generated

@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     kotlin("kapt")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -57,19 +58,19 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+
+    implementation(platform("com.google.firebase:firebase-bom:32.7.4"))
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-analytics-ktx")
     implementation ("com.google.mlkit:text-recognition:16.0.0")
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
-    implementation("androidx.compose.ui:ui-graphics:1.6.0")
-    implementation("androidx.compose.ui:ui:1.6.0")
-    implementation(platform("androidx.compose:compose-bom:2023.10.01"))
     implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.foundation:foundation:1.8.1")
     implementation ("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.0")
     implementation ("androidx.room:room-runtime:2.6.1")
-    implementation ("androidx.room:room-ktx:2.6.1")
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")  // Extensões para Kotlin (Coroutines, Flow)
+    implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.compose.material:material-icons-extended")
 
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "812598233478",
+    "project_id": "marketinho-2d2e0",
+    "storage_bucket": "marketinho-2d2e0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:812598233478:android:d664738b9a4a61cd7dc407",
+        "android_client_info": {
+          "package_name": "com.example.marketinho"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3nWL48xkGjaAqWiTjVuOZZNWMVuiwsmg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
