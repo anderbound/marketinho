@@ -5,9 +5,11 @@ import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import androidx.exifinterface.media.ExifInterface // Importação necessária
 import java.io.IOException
 
 object ImageUtils {
@@ -52,11 +54,76 @@ object ImageUtils {
 
     /**
      * Converte Uri para Bitmap (opcional)
+     * Este método será aprimorado com a rotação.
      */
     @Throws(IOException::class)
     fun uriToBitmap(context: Context, uri: Uri): Bitmap? {
         return context.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it)
         }
+    }
+
+    /**
+     * Carrega um Bitmap de uma Uri e rotaciona-o de acordo com os metadados EXIF.
+     */
+    fun getRotatedBitmap(context: Context, imageUri: Uri): Bitmap? {
+        var bitmap: Bitmap? = null
+        var inputStream = context.contentResolver.openInputStream(imageUri)
+
+        try {
+            // Decodifica o Bitmap
+            bitmap = BitmapFactory.decodeStream(inputStream)
+
+            // Reseta o inputStream para ler os metadados EXIF
+            inputStream?.close() // Feche o anterior
+            inputStream = context.contentResolver.openInputStream(imageUri) // Abra um novo para ExifInterface
+
+            if (inputStream != null && bitmap != null) {
+                val exifInterface = ExifInterface(inputStream)
+                val orientation = exifInterface.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+                )
+
+                val matrix = Matrix()
+                when (orientation) {
+                    ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90F)
+                    ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180F)
+                    ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270F)
+                    ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+                    ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+                    ExifInterface.ORIENTATION_TRANSPOSE -> {
+                        matrix.postRotate(90f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                    ExifInterface.ORIENTATION_TRANSVERSE -> {
+                        matrix.postRotate(270f)
+                        matrix.postScale(-1f, 1f)
+                    }
+                    else -> {} // Sem rotação ou rotação normal
+                }
+
+                if (!matrix.isIdentity) {
+                    // Crie um novo bitmap rotacionado
+                    val rotatedBitmap = Bitmap.createBitmap(
+                        bitmap,
+                        0,
+                        0,
+                        bitmap.width,
+                        bitmap.height,
+                        matrix,
+                        true
+                    )
+                    bitmap.recycle() // Recicle o bitmap original para liberar memória
+                    return rotatedBitmap
+                }
+            }
+        } catch (e: IOException) {
+            e.printStackTrace()
+            // Lidar com o erro
+        } finally {
+            inputStream?.close() // Garanta que o InputStream seja fechado
+        }
+        return bitmap
     }
 }

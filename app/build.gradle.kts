@@ -74,5 +74,6 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
 
 }

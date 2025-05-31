@@ -43,8 +43,8 @@ import com.example.marketinho.features.product.ProductViewModel
 import com.example.marketinho.features.product.utils.GeometryUtils.toImageCoordinates
 import com.example.marketinho.features.product.utils.GeometryUtils.transformToCanvasBounds
 import kotlin.math.roundToInt
-import com.example.marketinho.features.product.utils.ImageUtils
-import com.example.marketinho.features.product.components.QuantityDialog
+import com.example.marketinho.features.product.utils.ImageUtils // Importe ImageUtils
+
 
 @Composable
 fun ImageMarkingScreen(
@@ -61,21 +61,23 @@ fun ImageMarkingScreen(
     var quantity by remember { mutableStateOf(1) }
     var showQuantityDialog by remember { mutableStateOf(false) }
 
-    val imageSize = remember(imageUri) {
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(imageUri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        }
-        Size(options.outWidth.toFloat(), options.outHeight.toFloat())
-    }
-
+    // Use remember para carregar o bitmap e rotacioná-lo apenas uma vez
     val bitmap = remember(imageUri) {
         try {
-            context.contentResolver.openInputStream(imageUri)?.use {
-                BitmapFactory.decodeStream(it)
-            }
+            // AQUI ESTÁ A MUDANÇA: Use a nova função getRotatedBitmap
+            ImageUtils.getRotatedBitmap(context, imageUri)
         } catch (e: Exception) {
+            e.printStackTrace()
             null
+        }
+    }
+
+    val imageSize = remember(bitmap) {
+        if (bitmap != null) {
+            // O imageSize agora reflete o tamanho do bitmap JÁ ROTACIONADO
+            Size(bitmap.width.toFloat(), bitmap.height.toFloat())
+        } else {
+            Size.Zero
         }
     }
 
@@ -110,9 +112,13 @@ fun ImageMarkingScreen(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // A proporção agora usa o tamanho do bitmap já rotacionado
                 .aspectRatio(imageSize.width / imageSize.height)
                 .pointerInput(selectionStep, detectedTexts) {
                     detectTapGestures { tapOffset ->
+                        // As coordenadas de toque precisam ser transformadas para a imagem rotacionada
+                        // Se o ML Kit já lida com a orientação, as coordenadas do OCR
+                        // já devem estar corretas em relação à imagem "lógica".
                         val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
                         val imageOffset = tapOffset.toImageCoordinates(imageSize, canvasSize)
 
