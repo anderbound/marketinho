@@ -7,52 +7,59 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.example.marketinho.data.models.Purchase // Certifique-se de que este import está correto
-import com.example.marketinho.data.models.PurchaseItem // Importe PurchaseItem também
+import com.example.marketinho.data.models.Purchase
 import com.example.marketinho.features.auth.AuthViewModel
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PurchaseHistoryScreen(
     navController: NavController,
+    authViewModel: AuthViewModel,
     purchaseViewModel: PurchaseViewModel = viewModel(
         factory = PurchaseViewModelFactory(LocalContext.current.applicationContext as Application)
     )
 ) {
-    val authViewModel: AuthViewModel = viewModel(
-        factory = AuthViewModelFactory(LocalContext.current.applicationContext as Application)
-    )
-    val purchases by purchaseViewModel.userPurchases.collectAsState(initial = emptyList())
+    val purchases by purchaseViewModel.userPurchases.collectAsState()
+    val isLoading by purchaseViewModel.isLoading.collectAsState()
+    val errorMessage by purchaseViewModel.errorMessage.collectAsState()
 
-    LaunchedEffect(key1 = Unit) {
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
         purchaseViewModel.loadUserPurchases()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Histórico de Compras") },
+                title = {
+                    Text(
+                        "Histórico de Compras",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 actions = {
-                    Button(onClick = { authViewModel.signOut() }) {
-                        Text("Sair")
+                    IconButton(
+                        onClick = { showLogoutDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Logout,
+                            contentDescription = "Sair",
+                            tint = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             )
@@ -60,111 +67,180 @@ fun PurchaseHistoryScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    navController.navigate("main_screen") // Navega para a tela de nova compra (ProductMainScreen)
+                    navController.navigate("main_screen")
                 }
             ) {
                 Icon(Icons.Filled.Add, "Nova Compra")
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(16.dp)
         ) {
-            if (purchases.isEmpty()) {
-                Text("Nenhuma compra registrada ainda. Clique no '+' para começar!")
-            } else {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(purchases) { purchase ->
-                        PurchaseHistoryCard(
-                            purchase = purchase,
-                            onClick = {
-                                // TODO: Implementar navegação para detalhes da compra
-                                println("Clicou na compra de ${purchase.date}")
-                                // navController.navigate("purchase_details_screen/${purchase.id}")
-                            }
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+
+                errorMessage != null -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = errorMessage ?: "Erro desconhecido",
+                            color = MaterialTheme.colorScheme.error
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { purchaseViewModel.loadUserPurchases() }) {
+                            Text("Tentar novamente")
+                        }
+                    }
+                }
+
+                purchases.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            "Nenhuma compra registrada ainda",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Clique no '+' para começar!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(vertical = 16.dp)
+                    ) {
+                        items(purchases) { purchase ->
+                            PurchaseHistoryCard(
+                                purchase = purchase,
+                                onClick = { }
+                            )
+                        }
                     }
                 }
             }
         }
     }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Logout,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = { Text("Sair da conta?") },
+            text = { Text("Você será desconectado do aplicativo.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutDialog = false
+                        authViewModel.signOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Sair")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun PurchaseHistoryCard(purchase: Purchase, onClick: (Purchase) -> Unit) {
+fun PurchaseHistoryCard(
+    purchase: Purchase,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick(purchase) }
+            .clickable(onClick = onClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            val dateFormatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
-            Text(text = "Data: ${dateFormatter.format(purchase.date)}")
-            Text(text = "Mercado: ${if (purchase.marketName.isNotEmpty()) purchase.marketName else "Mercado Padrão"}") // Usar Mercado Padrão
-            Text(text = "Total: R$ ${String.format("%.2f", purchase.total)}")
-        }
-    }
-}
-
-class PurchaseViewModel(application: Application) : ViewModel() {
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-
-    private val _userPurchases = MutableStateFlow<List<Purchase>>(emptyList())
-    val userPurchases: StateFlow<List<Purchase>> = _userPurchases.asStateFlow()
-
-    fun loadUserPurchases() {
-        val userId = auth.currentUser?.uid ?: return
-        firestore.collection("purchases")
-            .whereEqualTo("userId", userId)
-            .orderBy("date", Query.Direction.DESCENDING)
-            .addSnapshotListener { snapshot, e ->
-                if (e != null) {
-                    println("Erro ao carregar compras: $e")
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null) {
-                    val purchases = snapshot.toObjects(Purchase::class.java)
-                    _userPurchases.value = purchases
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val dateFormatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
+                Text(
+                    text = dateFormatter.format(purchase.date.toDate()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "${purchase.totalItems} ${if (purchase.totalItems == 1) "item" else "itens"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-    }
 
-    fun savePurchase(products: List<Product>, total: Double) {
-        val userId = auth.currentUser?.uid
-        if (userId == null) {
-            println("Usuário não autenticado, não foi possível salvar a compra.")
-            return
-        }
+            Spacer(modifier = Modifier.height(8.dp))
 
-        val purchaseItems = products.map { product ->
-            PurchaseItem(
-                name = product.name,
-                price = product.price,
-                quantity = product.quantity
+            Text(
+                text = purchase.marketName,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (!purchase.address.isNullOrBlank()) {
+                Text(
+                    text = purchase.address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = "R$ ${"%.2f".format(purchase.total)}",
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.primary
             )
         }
-
-        val newPurchase = Purchase(
-            date = Date(),
-            total = total,
-            marketName = "Mercado Padrão", // Placeholder para o nome do mercado
-            userId = userId,
-            items = purchaseItems
-        )
-
-        firestore.collection("purchases")
-            .add(newPurchase)
-            .addOnSuccessListener { documentReference ->
-                println("Compra salva com sucesso! ID: ${documentReference.id}")
-            }
-            .addOnFailureListener { e ->
-                println("Erro ao salvar compra: $e")
-            }
     }
 }
 
