@@ -13,6 +13,10 @@ import com.example.marketinho.features.ocr.OcrProcessor
 import com.example.marketinho.features.product.utils.AppDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class ProductViewModel(application: Application) : AndroidViewModel(application) {
@@ -23,8 +27,10 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     private var _showMarkingScreen by mutableStateOf(false)
     private var _isLoading by mutableStateOf(false)
     private var _errorMessage by mutableStateOf<String?>(null)
-    private var _searchQuery by mutableStateOf("")
-    val searchQuery: String get() = _searchQuery
+
+    // ========== NOVO: ESTADO DE BUSCA (StateFlow para reatividade) ==========
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     val imageUri: Uri? get() = _imageUri
     val showMarkingScreen: Boolean get() = _showMarkingScreen
@@ -32,9 +38,28 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     val isLoading: Boolean get() = _isLoading
     val errorMessage: String? get() = _errorMessage
     val currentImageUri: Uri? get() = _imageUri
+
+    // ========== NOVO: PRODUTOS FILTRADOS (Combina produtos + busca) ==========
+    val filteredProducts: Flow<List<Product>> = combine(
+        products,
+        _searchQuery
+    ) { productsList, query ->
+        if (query.isBlank()) {
+            productsList
+        } else {
+            productsList.filter { product ->
+                product.name.contains(query, ignoreCase = true) ||
+                        product.price.toString().contains(query) ||
+                        product.quantity.toString().contains(query)
+            }
+        }
+    }
+
     val total: Flow<Double> = products.map { productsList ->
         productsList.sumOf { it.price * it.quantity }
     }
+
+    // ========== FUNÇÕES EXISTENTES ==========
 
     fun captureImage(uri: Uri) {
         _imageUri = uri
@@ -104,12 +129,9 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
                             addProduct(name, price)
                             setShowMarkingScreen(false)
                         },
-                        // CORRIGIDO: onManualSelection() é chamado diretamente aqui
-                        // O onManualSelection no ProductProcessingSection já lida com o setShowMarkingScreen(true)
-                        // A mensagem de erro específica do OCR não é passada aqui, pois o OcrProcessor não a expõe nesse callback.
                         onFailure = {
                             Log.e("ProductViewModel", "OCR FALHA: Erro desconhecido ou falha na API.")
-                            _errorMessage = "Erro no OCR. Favor, selecione manualmente." // Mensagem de erro genérica
+                            _errorMessage = "Erro no OCR. Favor, selecione manualmente."
                             onManualSelection()
                         }
                     )
@@ -131,5 +153,17 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearErrorMessage() {
         _errorMessage = null
+    }
+
+    // ========== NOVO: FUNÇÕES DE BUSCA ==========
+
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
+        Log.d("ProductViewModel", "Busca atualizada: $query")
+    }
+
+    fun clearSearch() {
+        _searchQuery.value = ""
+        Log.d("ProductViewModel", "Busca limpa")
     }
 }

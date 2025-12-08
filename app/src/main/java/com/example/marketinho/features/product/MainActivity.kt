@@ -10,6 +10,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -21,20 +22,11 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.marketinho.data.models.Purchase
-import com.example.marketinho.data.models.PurchaseItem
 import com.example.marketinho.features.camera.CameraSection
 import com.example.marketinho.features.product.components.*
 import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
 import com.example.marketinho.ui.theme.MarketinhoTheme
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.Query
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import java.util.Date
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,18 +79,15 @@ fun MarketinhoApp(
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    val productsInCart by productViewModel.products.collectAsState(initial = emptyList())
+    // CORRIGIDO: Usar filteredProducts ao invés de products
+    val productsInCart by productViewModel.filteredProducts.collectAsState(initial = emptyList())
     val totalInCart by productViewModel.total.collectAsState(initial = 0.0)
 
-    NavHost(navController = navController, startDestination = "history_screen") {
-        composable("history_screen") {
-            PurchaseHistoryScreen(
-                navController = navController,
-                purchaseViewModel = purchaseViewModel
-            )
-        }
+    NavHost(
+        navController = navController,
+        startDestination = "main_screen" // CORRIGIDO: Começar na tela principal
+    ) {
         composable("main_screen") {
-            // Se _showMarkingScreen for true E tiver uma imagem, mostra a tela de marcação
             if (productViewModel.showMarkingScreen && productViewModel.currentImageUri != null) {
                 ImageMarkingScreen(
                     viewModel = productViewModel,
@@ -109,10 +98,10 @@ fun MarketinhoApp(
                             price = price,
                             quantity = quantity
                         )
-                        productViewModel.setShowMarkingScreen(false) // Desativa a tela de marcação e limpa a URI
+                        productViewModel.setShowMarkingScreen(false)
                     },
                     onCancel = {
-                        productViewModel.setShowMarkingScreen(false) // Desativa a tela de marcação e limpa a URI
+                        productViewModel.setShowMarkingScreen(false)
                     }
                 )
             } else {
@@ -123,28 +112,42 @@ fun MarketinhoApp(
                     context = context,
                     navController = navController,
                     onFinalizePurchase = {
+                        // Salva a compra no Firestore
                         purchaseViewModel.savePurchase(
                             products = productsInCart,
                             total = totalInCart
                         )
+                        // Limpa o carrinho local (Room)
                         productViewModel.clearAllProducts()
+                        // Navega para o histórico
                         navController.navigate("history_screen") {
-                            popUpTo("main_screen") { inclusive = true }
+                            popUpTo("main_screen") { inclusive = false }
                         }
                     }
                 )
             }
         }
+
+        composable("history_screen") {
+            PurchaseHistoryScreen(
+                navController = navController,
+                purchaseViewModel = purchaseViewModel
+            )
+        }
+
         composable("checkout_screen") {
             CheckoutScreen(
                 viewModel = productViewModel,
                 onFinalizePurchase = {
+                    // Salva a compra
                     purchaseViewModel.savePurchase(
                         products = productsInCart,
                         total = totalInCart
                     )
+                    // Limpa o carrinho
                     productViewModel.clearAllProducts()
-                    navController.navigate("history_screen") {
+                    // Volta para a tela principal
+                    navController.navigate("main_screen") {
                         popUpTo("main_screen") { inclusive = true }
                     }
                 },
@@ -152,12 +155,6 @@ fun MarketinhoApp(
                     navController.popBackStack()
                 }
             )
-        }
-        composable("purchase_details_screen/{purchaseId}") { backStackEntry ->
-            val purchaseId = backStackEntry.arguments?.getString("purchaseId")
-            if (purchaseId != null) {
-                // PurchaseDetailsScreen(purchaseId = purchaseId, purchaseViewModel = purchaseViewModel)
-            }
         }
     }
 }
@@ -171,65 +168,107 @@ private fun ProductMainScreen(
     navController: NavController,
     onFinalizePurchase: () -> Unit
 ) {
+    // Observa o searchQuery como State para reatividade
+    val searchQuery by viewModel.searchQuery.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.systemBars) // NOVO: Respeita barras do sistema
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        val authViewModel: AuthViewModel = viewModel(
-            factory = AuthViewModelFactory(LocalContext.current.applicationContext as Application)
-        )
-        Button(onClick = { authViewModel.signOut() }) {
-            Text("Sair")
-        }
-        Spacer(modifier = Modifier.height(16.dp))
+        // Header com botões de ação
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val authViewModel: AuthViewModel = viewModel(
+                factory = AuthViewModelFactory(LocalContext.current.applicationContext as Application)
+            )
 
-        // Voltou ao onImageCaptured original
+            Button(onClick = {
+                navController.navigate("history_screen")
+            }) {
+                Text("Histórico")
+            }
+
+            Button(onClick = {
+                authViewModel.signOut()
+            }) {
+                Text("Sair")
+            }
+        }
+
+        // Seção da câmera
         CameraSection(
             onImageCaptured = viewModel::captureImage,
             modifier = Modifier.fillMaxWidth()
         )
 
-        // Restaura a ProductProcessingSection
+        // Processamento de imagem
         if (viewModel.imageUri != null) {
             ProductProcessingSection(
                 imageUri = viewModel.imageUri!!,
                 onAddProduct = {
-                    // Esta é a chamada para tentar OCR automático
                     viewModel.processImageWithOCR(
                         context = context,
-                        onManualSelection = { viewModel.setShowMarkingScreen(true) } // Vai para manual se OCR falhar
+                        onManualSelection = { viewModel.setShowMarkingScreen(true) }
                     )
                 },
                 onManualSelection = {
-                    // Esta é a chamada para ir direto para seleção manual
                     viewModel.setShowMarkingScreen(true)
                 }
             )
         }
 
+        // Card do total
         TotalCard(total = total)
 
+        // ========== NOVO: BARRA DE BUSCA ==========
+        SearchBar(
+            query = searchQuery, // Agora usa o State observável
+            onQueryChange = viewModel::updateSearchQuery,
+            onClearClick = viewModel::clearSearch
+        )
+
+        // Botão de finalizar compras
         if (products.size >= 2) {
             Button(
-                onClick = {
-                    navController.navigate("checkout_screen")
-                },
+                onClick = { navController.navigate("checkout_screen") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 8.dp)
             ) {
-                Text("Finalizar Compras")
+                Text("Finalizar Compras (${products.size} itens)")
             }
         }
 
-        ProductList(
-            products = products,
-            onProductUpdated = viewModel::updateProduct,
-            onProductRemoved = viewModel::removeProduct,
-            modifier = Modifier.fillMaxWidth()
-        )
+        // Lista de produtos (agora com produtos filtrados)
+        if (products.isEmpty() && searchQuery.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Nenhum produto encontrado para '$searchQuery'",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            ProductList(
+                products = products,
+                onProductUpdated = viewModel::updateProduct,
+                onProductRemoved = viewModel::removeProduct,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
+        }
     }
 }
 
