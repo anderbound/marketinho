@@ -17,44 +17,48 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.example.marketinho.data.models.Purchase
+import com.example.marketinho.data.models.PurchaseItem
 import com.example.marketinho.features.camera.CameraSection
 import com.example.marketinho.features.product.components.*
 import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
 import com.example.marketinho.ui.theme.MarketinhoTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import java.util.Date
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MarketinhoTheme {
-                // Instância do AuthViewModel acessível em toda a hierarquia de Composição
                 val authViewModel: AuthViewModel = viewModel(
                     factory = AuthViewModelFactory(application)
                 )
                 val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
-                // Decide qual tela exibir com base no estado de autenticação
-                // O LaunchedEffect no LoginScreen já vai lidar com a navegação
                 if (isAuthenticated) {
-                    MarketinhoApp() // Sua tela principal do app
+                    MarketinhoApp()
                 } else {
                     LoginScreen(
                         authViewModel = authViewModel,
-                        onLoginSuccess = {
-                            // Este callback é chamado quando o login é bem-sucedido.
-                            // Como _isAuthenticated é um StateFlow, a recomposição
-                            // do Composable pai (MainActivity) já vai acontecer
-                            // automaticamente e exibir MarketinhoApp.
-                            // Nenhuma navegação explícita é necessária aqui.
-                        }
+                        onLoginSuccess = { }
                     )
                 }
             }
         }
     }
 }
+
 class AuthViewModelFactory(
     private val application: Application
 ) : ViewModelProvider.Factory {
@@ -66,36 +70,95 @@ class AuthViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+
 @Composable
 fun MarketinhoApp(
-    // Mantém seu ProductViewModel
-    viewModel: ProductViewModel = viewModel(
+    productViewModel: ProductViewModel = viewModel(
         factory = ProductViewModelFactory(
+            LocalContext.current.applicationContext as Application
+        )
+    ),
+    purchaseViewModel: PurchaseViewModel = viewModel(
+        factory = PurchaseViewModelFactory(
             LocalContext.current.applicationContext as Application
         )
     )
 ) {
-    val products by viewModel.products.collectAsState(initial = emptyList())
-    val total by viewModel.total.collectAsState(initial = 0.0)
+    val navController = rememberNavController()
     val context = LocalContext.current
 
-    // Sua lógica existente para MarketinhoApp permanece
-    if (viewModel.showMarkingScreen && viewModel.currentImageUri != null) {
-        ImageMarkingScreen(
-            viewModel = viewModel,
-            imageUri = viewModel.currentImageUri!!,
-            onSelectionDone = { name, price, quantity ->
-                viewModel.addProduct(
-                    name = name,
-                    price = price,
-                    quantity = quantity
+    val productsInCart by productViewModel.products.collectAsState(initial = emptyList())
+    val totalInCart by productViewModel.total.collectAsState(initial = 0.0)
+
+    NavHost(navController = navController, startDestination = "history_screen") {
+        composable("history_screen") {
+            PurchaseHistoryScreen(
+                navController = navController,
+                purchaseViewModel = purchaseViewModel
+            )
+        }
+        composable("main_screen") {
+            // Se _showMarkingScreen for true E tiver uma imagem, mostra a tela de marcação
+            if (productViewModel.showMarkingScreen && productViewModel.currentImageUri != null) {
+                ImageMarkingScreen(
+                    viewModel = productViewModel,
+                    imageUri = productViewModel.currentImageUri!!,
+                    onSelectionDone = { name, price, quantity ->
+                        productViewModel.addProduct(
+                            name = name,
+                            price = price,
+                            quantity = quantity
+                        )
+                        productViewModel.setShowMarkingScreen(false) // Desativa a tela de marcação e limpa a URI
+                    },
+                    onCancel = {
+                        productViewModel.setShowMarkingScreen(false) // Desativa a tela de marcação e limpa a URI
+                    }
                 )
-                viewModel.setShowMarkingScreen(false)
-            },
-            onCancel = { viewModel.setShowMarkingScreen(false) }
-        )
-    } else {
-        ProductMainScreen(viewModel, products, total, context)
+            } else {
+                ProductMainScreen(
+                    viewModel = productViewModel,
+                    products = productsInCart,
+                    total = totalInCart,
+                    context = context,
+                    navController = navController,
+                    onFinalizePurchase = {
+                        purchaseViewModel.savePurchase(
+                            products = productsInCart,
+                            total = totalInCart
+                        )
+                        productViewModel.clearAllProducts()
+                        navController.navigate("history_screen") {
+                            popUpTo("main_screen") { inclusive = true }
+                        }
+                    }
+                )
+            }
+        }
+        composable("checkout_screen") {
+            CheckoutScreen(
+                viewModel = productViewModel,
+                onFinalizePurchase = {
+                    purchaseViewModel.savePurchase(
+                        products = productsInCart,
+                        total = totalInCart
+                    )
+                    productViewModel.clearAllProducts()
+                    navController.navigate("history_screen") {
+                        popUpTo("main_screen") { inclusive = true }
+                    }
+                },
+                onCancel = {
+                    navController.popBackStack()
+                }
+            )
+        }
+        composable("purchase_details_screen/{purchaseId}") { backStackEntry ->
+            val purchaseId = backStackEntry.arguments?.getString("purchaseId")
+            if (purchaseId != null) {
+                // PurchaseDetailsScreen(purchaseId = purchaseId, purchaseViewModel = purchaseViewModel)
+            }
+        }
     }
 }
 
@@ -104,7 +167,9 @@ private fun ProductMainScreen(
     viewModel: ProductViewModel,
     products: List<Product>,
     total: Double,
-    context: Context
+    context: Context,
+    navController: NavController,
+    onFinalizePurchase: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -112,8 +177,6 @@ private fun ProductMainScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Adicione um botão de logout para testar
-        // Precisa de acesso ao AuthViewModel, então injetamos ele novamente
         val authViewModel: AuthViewModel = viewModel(
             factory = AuthViewModelFactory(LocalContext.current.applicationContext as Application)
         )
@@ -122,25 +185,44 @@ private fun ProductMainScreen(
         }
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Voltou ao onImageCaptured original
         CameraSection(
             onImageCaptured = viewModel::captureImage,
             modifier = Modifier.fillMaxWidth()
         )
 
+        // Restaura a ProductProcessingSection
         if (viewModel.imageUri != null) {
             ProductProcessingSection(
                 imageUri = viewModel.imageUri!!,
                 onAddProduct = {
+                    // Esta é a chamada para tentar OCR automático
                     viewModel.processImageWithOCR(
                         context = context,
-                        onManualSelection = { viewModel.setShowMarkingScreen(true) }
+                        onManualSelection = { viewModel.setShowMarkingScreen(true) } // Vai para manual se OCR falhar
                     )
                 },
-                onManualSelection = { viewModel.setShowMarkingScreen(true) }
+                onManualSelection = {
+                    // Esta é a chamada para ir direto para seleção manual
+                    viewModel.setShowMarkingScreen(true)
+                }
             )
         }
 
         TotalCard(total = total)
+
+        if (products.size >= 2) {
+            Button(
+                onClick = {
+                    navController.navigate("checkout_screen")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Text("Finalizar Compras")
+            }
+        }
 
         ProductList(
             products = products,
@@ -151,7 +233,6 @@ private fun ProductMainScreen(
     }
 }
 
-// Adicione esta classe no mesmo arquivo ou em um novo
 class ProductViewModelFactory(
     private val application: Application
 ) : ViewModelProvider.Factory {

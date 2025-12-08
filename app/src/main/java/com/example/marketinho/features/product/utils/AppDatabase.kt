@@ -1,8 +1,7 @@
 // features/product/utils/AppDatabase.kt
 package com.example.marketinho.features.product.utils
 
-import com.example.marketinho.features.product.ProductDao
-
+import com.example.marketinho.features.product.utils.ProductDao
 
 
 import androidx.room.Database
