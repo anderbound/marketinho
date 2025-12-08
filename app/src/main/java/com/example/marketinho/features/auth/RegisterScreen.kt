@@ -1,9 +1,6 @@
 package com.example.marketinho.features.auth
 
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -11,18 +8,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -33,33 +29,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun LoginScreen(
+fun RegisterScreen(
     authViewModel: AuthViewModel,
-    onLoginSuccess: () -> Unit,
-    onNavigateToRegister: () -> Unit
+    onRegisterSuccess: () -> Unit,
+    onBackToLogin: () -> Unit
 ) {
     val context = LocalContext.current
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var showForgotPasswordDialog by remember { mutableStateOf(false) }
+    var confirmPasswordVisible by remember { mutableStateOf(false) }
 
     val isLoading by authViewModel.isLoading.collectAsState()
     val errorMessage by authViewModel.errorMessage.collectAsState()
 
     var emailError by remember { mutableStateOf<String?>(null) }
     var passwordError by remember { mutableStateOf<String?>(null) }
-
-    val googleSignInClient = remember { authViewModel.getGoogleSignInClient(context) }
-    val googleAuthLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        authViewModel.handleGoogleSignInResult(result.data)
-    }
+    var confirmPasswordError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(authViewModel.isAuthenticated.collectAsState().value) {
         if (authViewModel.isAuthenticated.value) {
-            onLoginSuccess()
+            onRegisterSuccess()
         }
     }
 
@@ -91,33 +82,33 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo e Título
+            // Ícone e Título
             Icon(
-                imageVector = Icons.Default.ShoppingCart,
-                contentDescription = "Logo Marketinho",
-                modifier = Modifier.size(80.dp),
+                imageVector = Icons.Default.PersonAdd,
+                contentDescription = "Cadastro",
+                modifier = Modifier.size(64.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Marketinho",
+                text = "Criar Conta",
                 style = MaterialTheme.typography.headlineLarge.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 36.sp
+                    fontSize = 32.sp
                 ),
                 color = MaterialTheme.colorScheme.primary
             )
 
             Text(
-                text = "Sua lista de compras inteligente",
+                text = "Cadastre-se para começar a economizar",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            // Card de Login
+            // Card de Cadastro
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -130,20 +121,6 @@ fun LoginScreen(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "Bem-vindo de volta!",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Entre com sua conta",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-
                     // Campo de Email
                     OutlinedTextField(
                         value = email,
@@ -154,6 +131,15 @@ fun LoginScreen(
                         label = { Text("E-mail") },
                         leadingIcon = {
                             Icon(Icons.Default.Email, contentDescription = "Email")
+                        },
+                        trailingIcon = {
+                            if (email.isNotEmpty() && emailError == null) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "Valid",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         singleLine = true,
@@ -172,6 +158,9 @@ fun LoginScreen(
                         onValueChange = {
                             password = it
                             passwordError = authViewModel.validatePassword(it)
+                            if (confirmPassword.isNotEmpty()) {
+                                confirmPasswordError = authViewModel.validatePasswordMatch(it, confirmPassword)
+                            }
                         },
                         label = { Text("Senha") },
                         leadingIcon = {
@@ -195,30 +184,55 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Link Esqueceu a senha
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = { showForgotPasswordDialog = true },
-                            enabled = !isLoading
-                        ) {
-                            Text(
-                                "Esqueceu a senha?",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Botão de Login
+                    // Campo de Confirmar Senha
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = {
+                            confirmPassword = it
+                            confirmPasswordError = authViewModel.validatePasswordMatch(password, it)
+                        },
+                        label = { Text("Confirmar Senha") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Lock, contentDescription = "Confirmar")
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        singleLine = true,
+                        visualTransformation = if (confirmPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        isError = confirmPasswordError != null,
+                        supportingText = {
+                            confirmPasswordError?.let { Text(it) }
+                        },
+                        trailingIcon = {
+                            if (confirmPassword.isNotEmpty()) {
+                                if (confirmPasswordError == null) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = "Match",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    IconButton(onClick = { confirmPasswordVisible = !confirmPasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (confirmPasswordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                            contentDescription = "Toggle"
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Botão de Cadastrar
                     Button(
-                        onClick = { authViewModel.login(email, password) },
-                        enabled = !isLoading && email.isNotEmpty() && password.isNotEmpty(),
+                        onClick = {
+                            authViewModel.register(email, password, confirmPassword)
+                        },
+                        enabled = !isLoading && email.isNotEmpty() && password.isNotEmpty() && confirmPassword.isNotEmpty(),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
@@ -231,51 +245,9 @@ fun LoginScreen(
                             )
                         } else {
                             Text(
-                                "Entrar",
+                                "Cadastrar",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Divider com "OU"
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                        Text(
-                            "  OU  ",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f))
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Botão Google
-                    OutlinedButton(
-                        onClick = {
-                            authViewModel.startGoogleSignInFlow(googleSignInClient, googleAuthLauncher)
-                        },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "Entrar com Google",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -284,21 +256,21 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Link de Cadastro
+            // Link de voltar ao login
             Row(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Não tem conta?",
+                    "Já tem conta?",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(
-                    onClick = onNavigateToRegister,
+                    onClick = onBackToLogin,
                     enabled = !isLoading
                 ) {
                     Text(
-                        "Cadastre-se",
+                        "Faça login",
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -306,85 +278,4 @@ fun LoginScreen(
             }
         }
     }
-
-    if (showForgotPasswordDialog) {
-        ForgotPasswordDialog(
-            authViewModel = authViewModel,
-            onDismiss = { showForgotPasswordDialog = false }
-        )
-    }
-}
-
-@Composable
-fun ForgotPasswordDialog(
-    authViewModel: AuthViewModel,
-    onDismiss: () -> Unit
-) {
-    var email by remember { mutableStateOf("") }
-    var emailError by remember { mutableStateOf<String?>(null) }
-    val isLoading by authViewModel.isLoading.collectAsState()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                "Recuperar Senha",
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Column {
-                Text("Digite seu email para receber um link de redefinição de senha.")
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = {
-                        email = it
-                        emailError = authViewModel.validateEmail(it)
-                    },
-                    label = { Text("E-mail") },
-                    leadingIcon = {
-                        Icon(Icons.Default.Email, contentDescription = "Email")
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    singleLine = true,
-                    isError = emailError != null,
-                    supportingText = {
-                        emailError?.let { Text(it) }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    authViewModel.sendPasswordResetEmail(email) {
-                        onDismiss()
-                    }
-                },
-                enabled = !isLoading && email.isNotEmpty() && emailError == null,
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Text("Enviar")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                enabled = !isLoading
-            ) {
-                Text("Cancelar")
-            }
-        },
-        shape = RoundedCornerShape(16.dp)
-    )
 }

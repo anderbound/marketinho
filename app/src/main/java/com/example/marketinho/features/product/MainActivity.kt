@@ -26,6 +26,7 @@ import com.example.marketinho.features.camera.CameraSection
 import com.example.marketinho.features.product.components.*
 import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
+import com.example.marketinho.features.auth.RegisterScreen
 import com.example.marketinho.ui.theme.MarketinhoTheme
 
 class MainActivity : ComponentActivity() {
@@ -38,13 +39,36 @@ class MainActivity : ComponentActivity() {
                 )
                 val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
-                if (isAuthenticated) {
-                    MarketinhoApp()
-                } else {
-                    LoginScreen(
-                        authViewModel = authViewModel,
-                        onLoginSuccess = { }
-                    )
+                // Controla qual tela de autenticação mostrar
+                var showRegisterScreen by remember { mutableStateOf(false) }
+
+                when {
+                    isAuthenticated -> {
+                        // Usuário autenticado - mostra o app principal
+                        MarketinhoApp()
+                    }
+                    showRegisterScreen -> {
+                        // Mostra tela de cadastro
+                        RegisterScreen(
+                            authViewModel = authViewModel,
+                            onRegisterSuccess = {
+                                showRegisterScreen = false
+                            },
+                            onBackToLogin = {
+                                showRegisterScreen = false
+                            }
+                        )
+                    }
+                    else -> {
+                        // Mostra tela de login
+                        LoginScreen(
+                            authViewModel = authViewModel,
+                            onLoginSuccess = { },
+                            onNavigateToRegister = {
+                                showRegisterScreen = true
+                            }
+                        )
+                    }
                 }
             }
         }
