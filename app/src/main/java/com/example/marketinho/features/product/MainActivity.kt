@@ -5,6 +5,8 @@ import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +30,7 @@ import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
 import com.example.marketinho.features.auth.RegisterScreen
 import com.example.marketinho.ui.theme.MarketinhoTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,15 +51,12 @@ private fun MainContent() {
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
     var showRegisterScreen by remember { mutableStateOf(false) }
 
-    // IMPORTANTE: Re-render completo quando autenticação mudar
     key(isAuthenticated) {
         when {
             isAuthenticated -> {
-                // Usuário logado - mostra app
                 MarketinhoApp(authViewModel = authViewModel)
             }
             showRegisterScreen -> {
-                // Tela de cadastro
                 RegisterScreen(
                     authViewModel = authViewModel,
                     onRegisterSuccess = {
@@ -68,7 +68,6 @@ private fun MainContent() {
                 )
             }
             else -> {
-                // Tela de login
                 LoginScreen(
                     authViewModel = authViewModel,
                     onLoginSuccess = { },
@@ -95,13 +94,10 @@ fun MarketinhoApp(
 
     val productsInCart by productViewModel.filteredProducts.collectAsState(initial = emptyList())
     val totalInCart by productViewModel.total.collectAsState(initial = 0.0)
-
-    // Observa mudanças de autenticação para limpar dados
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
     LaunchedEffect(isAuthenticated) {
         if (!isAuthenticated) {
-            // Limpa dados locais quando deslogar
             productViewModel.clearAllProducts()
         }
     }
@@ -142,7 +138,7 @@ fun MarketinhoApp(
         composable("history_screen") {
             PurchaseHistoryScreen(
                 navController = navController,
-                authViewModel = authViewModel // NOVO: Passa AuthViewModel
+                authViewModel = authViewModel
             )
         }
 
@@ -171,7 +167,6 @@ fun MarketinhoApp(
             )
         }
 
-        // NOVA ROTA: Detalhes da compra
         composable("purchase_details/{purchaseId}") { backStackEntry ->
             val purchaseId = backStackEntry.arguments?.getString("purchaseId")
             val purchaseViewModel: PurchaseViewModel = viewModel(
@@ -180,7 +175,6 @@ fun MarketinhoApp(
                 )
             )
 
-            // Observa as compras e encontra a específica
             val purchases by purchaseViewModel.userPurchases.collectAsState()
             val purchase = purchases.find { it.id == purchaseId }
 
@@ -190,7 +184,6 @@ fun MarketinhoApp(
                     navController = navController
                 )
             } else {
-                // Tela de loading ou erro
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -219,6 +212,37 @@ private fun ProductMainScreen(
         )
     )
 
+    // ========== ESTADOS DOS DIÁLOGOS (ANTES DA COLUMN) ==========
+    var showPaymentDialog by remember { mutableStateOf(false) }
+    var showLocationDialog by remember { mutableStateOf(false) }
+    var selectedPaymentMethod by remember { mutableStateOf<String?>(null) }
+
+    // Estados de localização
+    var locationInfo by remember { mutableStateOf<com.example.marketinho.features.location.LocationInfo?>(null) }
+    var isLoadingLocation by remember { mutableStateOf(false) }
+
+    // Launcher para pedir permissão
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.values.any { it }
+        if (granted) {
+            isLoadingLocation = true
+            kotlinx.coroutines.MainScope().launch {
+                locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
+                isLoadingLocation = false
+            }
+        } else {
+            isLoadingLocation = false
+            android.widget.Toast.makeText(
+                context,
+                "Permissão de localização negada",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // ========== COLUMN COM UI ==========
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -277,9 +301,6 @@ private fun ProductMainScreen(
             onClearClick = viewModel::clearSearch
         )
 
-        // Estado do diálogo de pagamento
-        var showPaymentDialog by remember { mutableStateOf(false) }
-
         if (products.size >= 2) {
             Button(
                 onClick = {
@@ -291,23 +312,6 @@ private fun ProductMainScreen(
             ) {
                 Text("Finalizar Compras (${products.size} itens)")
             }
-        }
-
-        // Diálogo de seleção de pagamento
-        if (showPaymentDialog) {
-            PaymentMethodDialog(
-                onDismiss = { showPaymentDialog = false },
-                onConfirm = { paymentMethod ->
-                    showPaymentDialog = false
-                    purchaseViewModel.savePurchase(
-                        products = products,
-                        total = total,
-                        paymentMethod = paymentMethod.displayName
-                    )
-                    viewModel.clearAllProducts()
-                    navController.navigate("history_screen")
-                }
-            )
         }
 
         if (products.isEmpty() && searchQuery.isNotEmpty()) {
@@ -333,6 +337,83 @@ private fun ProductMainScreen(
                     .weight(1f)
             )
         }
+    }
+
+    // ========== DIÁLOGOS (FORA DA COLUMN) ==========
+
+    // Diálogo de seleção de pagamento
+    if (showPaymentDialog) {
+        PaymentMethodDialog(
+            onDismiss = { showPaymentDialog = false },
+            onConfirm = { paymentMethod ->
+                showPaymentDialog = false
+                selectedPaymentMethod = paymentMethod.displayName
+
+                // Após selecionar pagamento, pedir localização
+                showLocationDialog = true
+
+                // Verificar e pedir permissão de localização
+                if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
+                    isLoadingLocation = true
+                    kotlinx.coroutines.MainScope().launch {
+                        locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
+                        isLoadingLocation = false
+                    }
+                } else {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    // Diálogo de confirmação de local
+    if (showLocationDialog) {
+        LocationConfirmationDialog(
+            locationInfo = locationInfo,
+            isLoading = isLoadingLocation,
+            onConfirm = { marketName, address ->
+                showLocationDialog = false
+
+                // Salva a compra com todos os dados
+                purchaseViewModel.savePurchase(
+                    products = products,
+                    total = total,
+                    paymentMethod = selectedPaymentMethod,
+                    marketName = marketName,
+                    marketLocation = locationInfo?.geoPoint,
+                    address = address
+                )
+
+                viewModel.clearAllProducts()
+                navController.navigate("history_screen")
+            },
+            onDismiss = {
+                showLocationDialog = false
+                locationInfo = null
+                isLoadingLocation = false
+            },
+            onRetry = {
+                if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
+                    isLoadingLocation = true
+                    kotlinx.coroutines.MainScope().launch {
+                        locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
+                        isLoadingLocation = false
+                    }
+                } else {
+                    locationPermissionLauncher.launch(
+                        arrayOf(
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        )
+                    )
+                }
+            }
+        )
     }
 }
 
