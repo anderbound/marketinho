@@ -6,8 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -233,13 +232,58 @@ fun PurchaseHistoryCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text(
-                text = "R$ ${"%.2f".format(purchase.total)}",
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.primary
-            )
+            // Total e Forma de Pagamento
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "R$ ${"%.2f".format(purchase.total)}",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                // Badge de método de pagamento
+                if (!purchase.paymentMethod.isNullOrBlank()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            val paymentIcon = when {
+                                purchase.paymentMethod.contains("Dinheiro", ignoreCase = true) ->
+                                    Icons.Default.AttachMoney
+                                purchase.paymentMethod.contains("PIX", ignoreCase = true) ->
+                                    Icons.Default.AccountBalance
+                                purchase.paymentMethod.contains("Vale", ignoreCase = true) ->
+                                    Icons.Default.CardGiftcard
+                                else -> Icons.Default.CreditCard
+                            }
+
+                            Icon(
+                                imageVector = paymentIcon,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+
+                            Text(
+                                text = purchase.paymentMethod,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -247,15 +247,13 @@ private fun ProductMainScreen(
             onClearClick = viewModel::clearSearch
         )
 
+        // Estado do diálogo de pagamento
+        var showPaymentDialog by remember { mutableStateOf(false) }
+
         if (products.size >= 2) {
             Button(
                 onClick = {
-                    purchaseViewModel.savePurchase(
-                        products = products,
-                        total = total
-                    )
-                    viewModel.clearAllProducts()
-                    navController.navigate("history_screen")
+                    showPaymentDialog = true
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -263,6 +261,23 @@ private fun ProductMainScreen(
             ) {
                 Text("Finalizar Compras (${products.size} itens)")
             }
+        }
+
+        // Diálogo de seleção de pagamento
+        if (showPaymentDialog) {
+            PaymentMethodDialog(
+                onDismiss = { showPaymentDialog = false },
+                onConfirm = { paymentMethod ->
+                    showPaymentDialog = false
+                    purchaseViewModel.savePurchase(
+                        products = products,
+                        total = total,
+                        paymentMethod = paymentMethod.displayName
+                    )
+                    viewModel.clearAllProducts()
+                    navController.navigate("history_screen")
+                }
+            )
         }
 
         if (products.isEmpty() && searchQuery.isNotEmpty()) {
