@@ -140,7 +140,10 @@ fun PurchaseHistoryScreen(
                         items(purchases) { purchase ->
                             PurchaseHistoryCard(
                                 purchase = purchase,
-                                onClick = { }
+                                onClick = {
+                                    // Navega para detalhes da compra
+                                    navController.navigate("purchase_details/${purchase.id}")
+                                }
                             )
                         }
                     }

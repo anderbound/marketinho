@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -168,6 +169,35 @@ fun MarketinhoApp(
                     navController.popBackStack()
                 }
             )
+        }
+
+        // NOVA ROTA: Detalhes da compra
+        composable("purchase_details/{purchaseId}") { backStackEntry ->
+            val purchaseId = backStackEntry.arguments?.getString("purchaseId")
+            val purchaseViewModel: PurchaseViewModel = viewModel(
+                factory = PurchaseViewModelFactory(
+                    LocalContext.current.applicationContext as Application
+                )
+            )
+
+            // Observa as compras e encontra a específica
+            val purchases by purchaseViewModel.userPurchases.collectAsState()
+            val purchase = purchases.find { it.id == purchaseId }
+
+            if (purchase != null) {
+                PurchaseDetailsScreen(
+                    purchase = purchase,
+                    navController = navController
+                )
+            } else {
+                // Tela de loading ou erro
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
         }
     }
 }
