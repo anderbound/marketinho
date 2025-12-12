@@ -5,10 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,9 +17,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.marketinho.data.models.ProductCategory
 import com.example.marketinho.features.product.Product
 import com.example.marketinho.features.product.utils.PriceUtils
-import androidx.compose.runtime.remember
 
 @Composable
 fun ProductCard(
@@ -31,21 +28,11 @@ fun ProductCard(
     onRemoveClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Converte a String de imageUri para Uri quando necessário
     val imageUri = remember(product.imageUri) {
         product.imageUri?.let { Uri.parse(it) }
     }
 
     var showEditDialog by remember { mutableStateOf(false) }
-    var editedName by remember { mutableStateOf(product.name) }
-    var editedPrice by remember(product.price) {
-        mutableStateOf(PriceUtils.format(product.price))
-    }
-    var editedQuantity by remember(product.quantity) {
-        mutableStateOf(product.quantity.toString())
-    }
-    var priceError by remember { mutableStateOf(false) }
-    var quantityError by remember { mutableStateOf(false) }
 
     Card(
         modifier = modifier
@@ -56,6 +43,25 @@ fun ProductCard(
         Column(modifier = Modifier.padding(16.dp)) {
             ProductImage(product.imageUri)
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Nome e categoria
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = product.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                // Badge de categoria
+                product.category?.let { categoryName ->
+                    ProductCategory.fromString(categoryName)?.let { category ->
+                        CategoryBadge(category = category)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             ProductInfo(
                 product = product,
                 onEditClick = { showEditDialog = true },
@@ -75,28 +81,8 @@ fun ProductCard(
     if (showEditDialog) {
         ProductEditDialog(
             product = product,
-            editedName = editedName,
-            editedPrice = editedPrice,
-            editedQuantity = editedQuantity,
-            priceError = priceError,
-            quantityError = quantityError,
-            onNameChange = { editedName = it },
-            onPriceChange = {
-                editedPrice = it
-                priceError = !PriceUtils.isValid(editedPrice)
-            },
-            onQuantityChange = {
-                editedQuantity = it
-                quantityError = it.toIntOrNull()?.let { qty -> qty <= 0 } ?: true
-            },
-            onSave = {
-                onEditClick(
-                    product.copy(
-                        name = editedName,
-                        price = PriceUtils.parse(editedPrice) ?: product.price,
-                        quantity = editedQuantity.toIntOrNull() ?: product.quantity
-                    )
-                )
+            onSave = { updatedProduct ->
+                onEditClick(updatedProduct)
                 showEditDialog = false
             },
             onDismiss = { showEditDialog = false }
@@ -106,7 +92,7 @@ fun ProductCard(
 
 @Composable
 private fun ProductImage(
-    imageUri: String?,  // Alterado para String?
+    imageUri: String?,
     modifier: Modifier = Modifier
 ) {
     val uri = remember(imageUri) {
@@ -139,6 +125,7 @@ private fun ProductImage(
         }
     }
 }
+
 @Composable
 private fun ProductInfo(
     product: Product,
@@ -152,13 +139,10 @@ private fun ProductInfo(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = product.name,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
                 text = PriceUtils.format(product.price),
                 style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
             )
         }
 
@@ -206,7 +190,7 @@ private fun QuantityControls(
                     onClick = { if (quantity > 1) onQuantityChange(quantity - 1) },
                     modifier = Modifier.size(24.dp)
                 ) {
-                    Icon(Icons.Default.Delete, "Diminuir quantidade")
+                    Icon(Icons.Default.Remove, "Diminuir quantidade")
                 }
 
                 Text(text = quantity.toString())
@@ -234,34 +218,43 @@ private fun QuantityControls(
 @Composable
 private fun ProductEditDialog(
     product: Product,
-    editedName: String,
-    editedPrice: String,
-    editedQuantity: String,
-    priceError: Boolean,
-    quantityError: Boolean,
-    onNameChange: (String) -> Unit,
-    onPriceChange: (String) -> Unit,
-    onQuantityChange: (String) -> Unit,
-    onSave: () -> Unit,
+    onSave: (Product) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var editedName by remember { mutableStateOf(product.name) }
+    var editedPrice by remember(product.price) {
+        mutableStateOf(PriceUtils.format(product.price))
+    }
+    var editedQuantity by remember(product.quantity) {
+        mutableStateOf(product.quantity.toString())
+    }
+    var editedCategory by remember {
+        mutableStateOf(
+            product.category?.let { ProductCategory.fromString(it) }
+        )
+    }
+
+    var priceError by remember { mutableStateOf(false) }
+    var quantityError by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Editar ${product.name}") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 TextField(
                     value = editedName,
-                    onValueChange = onNameChange,
+                    onValueChange = { editedName = it },
                     label = { Text("Nome") },
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(16.dp))
-
                 TextField(
                     value = editedPrice,
-                    onValueChange = onPriceChange,
+                    onValueChange = {
+                        editedPrice = it
+                        priceError = !PriceUtils.isValid(editedPrice)
+                    },
                     label = { Text("Preço") },
                     isError = priceError,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -273,11 +266,12 @@ private fun ProductEditDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(Modifier.height(16.dp))
-
                 TextField(
                     value = editedQuantity,
-                    onValueChange = onQuantityChange,
+                    onValueChange = {
+                        editedQuantity = it
+                        quantityError = it.toIntOrNull()?.let { qty -> qty <= 0 } ?: true
+                    },
                     label = { Text("Quantidade") },
                     isError = quantityError,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -288,11 +282,27 @@ private fun ProductEditDialog(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // Dropdown de categoria
+                CategoryDropdown(
+                    selectedCategory = editedCategory,
+                    onCategorySelected = { editedCategory = it },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
             Button(
-                onClick = onSave,
+                onClick = {
+                    onSave(
+                        product.copy(
+                            name = editedName,
+                            price = PriceUtils.parse(editedPrice) ?: product.price,
+                            quantity = editedQuantity.toIntOrNull() ?: product.quantity,
+                            category = editedCategory?.name
+                        )
+                    )
+                },
                 enabled = !priceError && !quantityError
             ) {
                 Text("Salvar")

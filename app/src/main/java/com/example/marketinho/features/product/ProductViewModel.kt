@@ -76,17 +76,17 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun addProduct(name: String, price: String, quantity: Int = 1) {
+    fun addProduct(name: String, price: String, quantity: Int = 1, category: String? = null) {
         viewModelScope.launch {
             val product = Product(
                 name = name,
                 price = price.toDoubleOrNull() ?: 0.0,
                 quantity = quantity,
                 imageUri = _imageUri?.toString(),
-                createdAt = System.currentTimeMillis()
+                createdAt = System.currentTimeMillis(),
+                category = category  // ADICIONE ESTA LINHA
             )
             productDao.insertProduct(product)
-            Log.d("ProductViewModel", "Produto adicionado: ${product.name}")
         }
     }
 

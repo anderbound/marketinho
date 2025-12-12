@@ -38,13 +38,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.example.marketinho.data.models.ProductCategory
 import com.example.marketinho.features.ocr.OcrProcessor
 import com.example.marketinho.features.product.ProductViewModel
 import com.example.marketinho.features.product.utils.GeometryUtils.toImageCoordinates
 import com.example.marketinho.features.product.utils.GeometryUtils.transformToCanvasBounds
+import com.example.marketinho.features.product.utils.ImageUtils
 import kotlin.math.roundToInt
-import com.example.marketinho.features.product.utils.ImageUtils // Importe ImageUtils
-
 
 @Composable
 fun ImageMarkingScreen(
@@ -54,17 +54,22 @@ fun ImageMarkingScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
-    var selectionStep by remember { mutableStateOf("name") } // "name" ou "price"
+    var selectionStep by remember { mutableStateOf("name") }
     var detectedTexts by remember { mutableStateOf<List<Pair<Rect, String>>>(emptyList()) }
     var selectedName by remember { mutableStateOf<Pair<Rect, String>?>(null) }
     var selectedPrice by remember { mutableStateOf<Pair<Rect, String>?>(null) }
     var quantity by remember { mutableStateOf(1) }
     var showQuantityDialog by remember { mutableStateOf(false) }
 
-    // Use remember para carregar o bitmap e rotacioná-lo apenas uma vez
+    // NOVO: Sugestão de categoria baseada no nome selecionado
+    val suggestedCategory = remember(selectedName?.second) {
+        selectedName?.second?.let { name ->
+            ProductCategory.suggestFromName(name)
+        }
+    }
+
     val bitmap = remember(imageUri) {
         try {
-            // AQUI ESTÁ A MUDANÇA: Use a nova função getRotatedBitmap
             ImageUtils.getRotatedBitmap(context, imageUri)
         } catch (e: Exception) {
             e.printStackTrace()
@@ -74,7 +79,6 @@ fun ImageMarkingScreen(
 
     val imageSize = remember(bitmap) {
         if (bitmap != null) {
-            // O imageSize agora reflete o tamanho do bitmap JÁ ROTACIONADO
             Size(bitmap.width.toFloat(), bitmap.height.toFloat())
         } else {
             Size.Zero
@@ -86,12 +90,13 @@ fun ImageMarkingScreen(
             imageUri = imageUri,
             context = context,
             onSuccess = { androidTexts ->
-                // Converter List<Pair<android.graphics.Rect, String>> para List<Pair<androidx.compose.ui.geometry.Rect, String>>
                 detectedTexts = androidTexts.map { (rect, text) ->
                     rect.toComposeRect() to text
                 }
             },
-            onFailure = { Toast.makeText(context, "Falha ao ler texto", Toast.LENGTH_SHORT).show() }
+            onFailure = {
+                Toast.makeText(context, "Falha ao ler texto", Toast.LENGTH_SHORT).show()
+            }
         )
     }
 
@@ -101,6 +106,7 @@ fun ImageMarkingScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Título com indicação da etapa
         Text(
             text = when (selectionStep) {
                 "name" -> "Toque para selecionar o NOME do produto"
@@ -109,16 +115,13 @@ fun ImageMarkingScreen(
             style = MaterialTheme.typography.titleMedium
         )
 
+        // Box com a imagem e detecção
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                // A proporção agora usa o tamanho do bitmap já rotacionado
                 .aspectRatio(imageSize.width / imageSize.height)
                 .pointerInput(selectionStep, detectedTexts) {
                     detectTapGestures { tapOffset ->
-                        // As coordenadas de toque precisam ser transformadas para a imagem rotacionada
-                        // Se o ML Kit já lida com a orientação, as coordenadas do OCR
-                        // já devem estar corretas em relação à imagem "lógica".
                         val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
                         val imageOffset = tapOffset.toImageCoordinates(imageSize, canvasSize)
 
@@ -133,7 +136,6 @@ fun ImageMarkingScreen(
                                     }
 
                                     "price" -> {
-                                        // Garante a conversão correta do preço
                                         val cleanPrice = ImageUtils.extractPriceValue(text)
                                         selectedPrice = rect to cleanPrice
                                     }
@@ -166,8 +168,8 @@ fun ImageMarkingScreen(
                         )
                     }
 
-                    // 4. Destacar apenas o que é relevante para a etapa atual
-                    detectedTexts.forEach { (rect, text) ->
+                    // Desenha textos detectados
+                    detectedTexts.forEach { (rect, _) ->
                         val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
                         drawRect(
                             color = Color.Green.copy(alpha = 0.3f),
@@ -183,7 +185,7 @@ fun ImageMarkingScreen(
                         )
                     }
 
-                    // Destaca as seleções
+                    // Destaca nome selecionado
                     selectedName?.let { (rect, _) ->
                         val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
                         drawRect(
@@ -200,6 +202,7 @@ fun ImageMarkingScreen(
                         )
                     }
 
+                    // Destaca preço selecionado
                     selectedPrice?.let { (rect, _) ->
                         val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
                         drawRect(
@@ -221,6 +224,21 @@ fun ImageMarkingScreen(
         // Mostra as seleções
         selectedName?.let { (_, text) ->
             Text("Nome selecionado: $text", style = MaterialTheme.typography.bodyLarge)
+
+            // NOVO: Mostra categoria sugerida
+            suggestedCategory?.let { category ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Text(
+                        "Categoria sugerida:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    CategoryBadge(category = category)
+                }
+            }
         }
 
         selectedPrice?.let { (_, text) ->
@@ -282,23 +300,32 @@ fun ImageMarkingScreen(
             ) {
                 Text("Confirmar")
             }
+        }
 
-            // Diálogo de quantidade
-            if (showQuantityDialog) {
-                QuantityDialog(
-                    initialQuantity = quantity,
-                    onConfirm = { newQuantity ->
-                        quantity = newQuantity
-                        showQuantityDialog = false
-                        onSelectionDone(
-                            selectedName!!.second,
-                            selectedPrice!!.second,
-                            newQuantity
-                        )
-                    },
-                    onDismiss = { showQuantityDialog = false }
-                )
-            }
+        // Diálogo de quantidade
+        if (showQuantityDialog) {
+            QuantityDialog(
+                initialQuantity = quantity,
+                onConfirm = { newQuantity ->
+                    quantity = newQuantity
+                    showQuantityDialog = false
+
+                    // NOVO: Adiciona produto com categoria sugerida
+                    viewModel.addProduct(
+                        name = selectedName!!.second,
+                        price = selectedPrice!!.second,
+                        quantity = newQuantity,
+                        category = suggestedCategory?.name
+                    )
+
+                    onSelectionDone(
+                        selectedName!!.second,
+                        selectedPrice!!.second,
+                        newQuantity
+                    )
+                },
+                onDismiss = { showQuantityDialog = false }
+            )
         }
     }
 }
