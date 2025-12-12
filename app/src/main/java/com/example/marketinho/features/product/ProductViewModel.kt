@@ -9,7 +9,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.marketinho.features.ocr.OcrProcessor
 import com.example.marketinho.features.product.utils.AppDatabase
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -28,7 +27,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     private var _isLoading by mutableStateOf(false)
     private var _errorMessage by mutableStateOf<String?>(null)
 
-    // ========== NOVO: ESTADO DE BUSCA (StateFlow para reatividade) ==========
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
@@ -39,7 +37,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     val errorMessage: String? get() = _errorMessage
     val currentImageUri: Uri? get() = _imageUri
 
-    // ========== NOVO: PRODUTOS FILTRADOS (Combina produtos + busca) ==========
     val filteredProducts: Flow<List<Product>> = combine(
         products,
         _searchQuery
@@ -59,20 +56,20 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         productsList.sumOf { it.price * it.quantity }
     }
 
-    // ========== FUNÇÕES EXISTENTES ==========
-
     fun captureImage(uri: Uri) {
         _imageUri = uri
         _errorMessage = null
-        Log.d("ProductViewModel", "URI da imagem capturada: $_imageUri")
+        Log.d("ProductViewModel", "Imagem capturada: $uri")
     }
 
     fun setShowMarkingScreen(value: Boolean) {
         _showMarkingScreen = value
-        Log.d("ProductViewModel", "ShowMarkingScreen set to: $value")
+        Log.d("ProductViewModel", "ShowMarkingScreen: $value")
+
+        // ✅ Limpa a imagem ao fechar
         if (!value) {
             _imageUri = null
-            Log.d("ProductViewModel", "URI da imagem limpa (tela de marcação desativada).")
+            Log.d("ProductViewModel", "ImageUri limpa")
         }
     }
 
@@ -84,9 +81,14 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
                 quantity = quantity,
                 imageUri = _imageUri?.toString(),
                 createdAt = System.currentTimeMillis(),
-                category = category  // ADICIONE ESTA LINHA
+                category = category
             )
             productDao.insertProduct(product)
+            Log.d("ProductViewModel", "✅ Produto adicionado: $name")
+
+            // ✅ IMPORTANTE: Limpa a imagem após adicionar
+            _imageUri = null
+            _showMarkingScreen = false
         }
     }
 
@@ -107,47 +109,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     fun clearAllProducts() {
         viewModelScope.launch {
             productDao.deleteAllProducts()
-            Log.d("ProductViewModel", "Todos os produtos foram limpos do Room.")
-        }
-    }
-
-    fun processImageWithOCR(
-        context: Context,
-        onManualSelection: () -> Unit = {}
-    ) {
-        _imageUri?.let { uri ->
-            _isLoading = true
-            _errorMessage = null
-            Log.d("ProductViewModel", "Iniciando processamento OCR para URI: $uri")
-            viewModelScope.launch {
-                try {
-                    OcrProcessor.processImageWithOCR(
-                        imageUri = uri,
-                        context = context,
-                        onSuccess = { name, price ->
-                            Log.d("ProductViewModel", "OCR SUCESSO: Nome=$name, Preço=$price")
-                            addProduct(name, price)
-                            setShowMarkingScreen(false)
-                        },
-                        onFailure = {
-                            Log.e("ProductViewModel", "OCR FALHA: Erro desconhecido ou falha na API.")
-                            _errorMessage = "Erro no OCR. Favor, selecione manualmente."
-                            onManualSelection()
-                        }
-                    )
-                } catch (e: Exception) {
-                    Log.e("ProductViewModel", "Erro inesperado durante OCR: ${e.message}", e)
-                    _errorMessage = "Erro inesperado: ${e.message}"
-                    onManualSelection()
-                } finally {
-                    _isLoading = false
-                    Log.d("ProductViewModel", "Processamento OCR finalizado.")
-                }
-            }
-        } ?: run {
-            Log.w("ProductViewModel", "processImageWithOCR chamado sem imageUri. Redirecionando para seleção manual.")
-            _errorMessage = "Nenhuma imagem para processar."
-            onManualSelection()
+            Log.d("ProductViewModel", "Todos os produtos limpos")
         }
     }
 
@@ -155,15 +117,11 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         _errorMessage = null
     }
 
-    // ========== NOVO: FUNÇÕES DE BUSCA ==========
-
     fun updateSearchQuery(query: String) {
         _searchQuery.value = query
-        Log.d("ProductViewModel", "Busca atualizada: $query")
     }
 
     fun clearSearch() {
         _searchQuery.value = ""
-        Log.d("ProductViewModel", "Busca limpa")
     }
 }

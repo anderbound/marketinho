@@ -12,7 +12,123 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.tasks.await
 import kotlin.math.abs
 
+data class DetectedLabel(
+    val rect: android.graphics.Rect,
+    val name: String,
+    val price: String,
+    val confidence: Float = 1.0f
+)
+
 object OcrProcessor {
+
+    private const val MAX_PRODUCT_NAME_WORDS = 5
+    private const val MIN_LABEL_DISTANCE = 100 // pixels mínimos entre etiquetas
+
+    /**
+     * NOVA FUNÇÃO: Detecta múltiplas etiquetas na imagem
+     */
+    suspend fun detectMultipleLabels(
+        imageUri: Uri,
+        context: Context
+    ): List<DetectedLabel> {
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val image = InputImage.fromFilePath(context, imageUri)
+
+        return try {
+            val visionText = recognizer.process(image).await()
+            val labels = mutableListOf<DetectedLabel>()
+
+            // Agrupa blocos de texto por proximidade (possíveis etiquetas)
+            val textBlocks = visionText.textBlocks
+            val processedBlocks = mutableSetOf<Text.TextBlock>()
+
+            for (block in textBlocks) {
+                if (block in processedBlocks) continue
+
+                // Tenta encontrar nome e preço próximos
+                val blockRect = block.boundingBox ?: continue
+                val nearbyBlocks = findNearbyBlocks(block, textBlocks, MIN_LABEL_DISTANCE)
+
+                val (name, price) = extractNameAndPriceFromBlocks(
+                    listOf(block) + nearbyBlocks
+                )
+
+                if (price != "0.00" && name != "Produto Desconhecido") {
+                    labels.add(
+                        DetectedLabel(
+                            rect = blockRect,
+                            name = limitProductName(name),
+                            price = price
+                        )
+                    )
+                    processedBlocks.addAll(nearbyBlocks)
+                    processedBlocks.add(block)
+                }
+            }
+
+            Log.d("OCR", "Detectadas ${labels.size} etiquetas")
+            labels
+        } catch (e: Exception) {
+            Log.e("OCR", "Erro ao detectar etiquetas", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Encontra blocos de texto próximos (mesma etiqueta)
+     */
+    private fun findNearbyBlocks(
+        referenceBlock: Text.TextBlock,
+        allBlocks: List<Text.TextBlock>,
+        maxDistance: Int
+    ): List<Text.TextBlock> {
+        val refRect = referenceBlock.boundingBox ?: return emptyList()
+
+        return allBlocks.filter { block ->
+            if (block == referenceBlock) return@filter false
+            val blockRect = block.boundingBox ?: return@filter false
+
+            // Calcula distância vertical entre blocos
+            val verticalDistance = abs(refRect.centerY() - blockRect.centerY())
+            val horizontalOverlap = hasHorizontalOverlap(refRect, blockRect)
+
+            verticalDistance < maxDistance && horizontalOverlap
+        }
+    }
+
+    /**
+     * Verifica se dois retângulos têm sobreposição horizontal
+     */
+    private fun hasHorizontalOverlap(rect1: Rect, rect2: Rect): Boolean {
+        return !(rect1.right < rect2.left || rect2.right < rect1.left)
+    }
+
+    /**
+     * Extrai nome e preço de um grupo de blocos
+     */
+    private fun extractNameAndPriceFromBlocks(
+        blocks: List<Text.TextBlock>
+    ): Pair<String, String> {
+        val allText = blocks.joinToString(" ") { it.text }
+        return findPriceAndName(allText)
+    }
+
+    /**
+     * Limita o nome do produto a MAX_PRODUCT_NAME_WORDS palavras
+     */
+    private fun limitProductName(name: String): String {
+        val words = name.trim().split("\\s+".toRegex())
+        return if (words.size > MAX_PRODUCT_NAME_WORDS) {
+            words.take(MAX_PRODUCT_NAME_WORDS).joinToString(" ")
+        } else {
+            name
+        }
+    }
+
+    // ===================================================================
+    // FUNÇÕES EXISTENTES (mantidas para compatibilidade)
+    // ===================================================================
+
     suspend fun recognizeTextFromRects(
         imageUri: Uri,
         nameRect: android.graphics.Rect,
@@ -26,7 +142,7 @@ object OcrProcessor {
             val visionText = recognizer.process(image).await()
             val name = extractTextFromRect(visionText, nameRect)
             val price = extractTextFromRect(visionText, priceRect)
-            Pair(name, price)
+            Pair(limitProductName(name), price)
         } catch (e: Exception) {
             Log.e("OCR", "Erro no reconhecimento", e)
             Pair("", "")
@@ -83,7 +199,7 @@ object OcrProcessor {
             .addOnSuccessListener { visionText ->
                 val (name, price) = findPriceAndName(visionText.text)
                 if (price != "0.00") {
-                    onSuccess(name, price)
+                    onSuccess(limitProductName(name), price)
                 } else {
                     onFailure()
                 }
@@ -97,7 +213,7 @@ object OcrProcessor {
         visionText: Text,
         rect: android.graphics.Rect
     ): String {
-        return visionText.textBlocks
+        val text = visionText.textBlocks
             .filter { block ->
                 block.boundingBox?.let { box ->
                     rect.contains(box.left, box.top) ||
@@ -105,6 +221,8 @@ object OcrProcessor {
                 } ?: false
             }
             .joinToString(" ") { it.text }
+
+        return limitProductName(text)
     }
 
     private fun findPriceAndName(fullText: String): Pair<String, String> {
@@ -123,7 +241,7 @@ object OcrProcessor {
             .trim()
             .takeIf { it.isNotBlank() } ?: "Produto Desconhecido"
 
-        return Pair(name, price)
+        return Pair(limitProductName(name), price)
     }
 
     fun isLikelyPrice(text: String): Boolean {

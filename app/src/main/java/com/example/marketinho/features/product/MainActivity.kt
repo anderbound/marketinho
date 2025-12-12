@@ -3,6 +3,7 @@ package com.example.marketinho.features.product
 import android.app.Application
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -96,6 +97,14 @@ fun MarketinhoApp(
     val totalInCart by productViewModel.total.collectAsState(initial = 0.0)
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
+    // Abre tela de seleção automaticamente após capturar foto
+    LaunchedEffect(productViewModel.imageUri) {
+        if (productViewModel.imageUri != null && !productViewModel.showMarkingScreen) {
+            Log.d("MainActivity", "📸 Foto capturada, abrindo tela de seleção")
+            productViewModel.setShowMarkingScreen(true)
+        }
+    }
+
     LaunchedEffect(isAuthenticated) {
         if (!isAuthenticated) {
             productViewModel.clearAllProducts()
@@ -111,15 +120,18 @@ fun MarketinhoApp(
                 ImageMarkingScreen(
                     viewModel = productViewModel,
                     imageUri = productViewModel.currentImageUri!!,
-                    onSelectionDone = { name, price, quantity ->
+                    onSelectionDone = { name, price, quantity, category ->  // ✅ Recebe categoria
+                        Log.d("MainActivity", "📝 Produto: $name, R$ $price (x$quantity), Categoria: ${category ?: "sem categoria"}")
+
                         productViewModel.addProduct(
                             name = name,
                             price = price,
-                            quantity = quantity
+                            quantity = quantity,
+                            category = category  // ✅ Passa categoria (pode ser null)
                         )
-                        productViewModel.setShowMarkingScreen(false)
                     },
                     onCancel = {
+                        Log.d("MainActivity", "❌ Seleção cancelada")
                         productViewModel.setShowMarkingScreen(false)
                     }
                 )
@@ -212,16 +224,12 @@ private fun ProductMainScreen(
         )
     )
 
-    // ========== ESTADOS DOS DIÁLOGOS (ANTES DA COLUMN) ==========
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var selectedPaymentMethod by remember { mutableStateOf<String?>(null) }
-
-    // Estados de localização
     var locationInfo by remember { mutableStateOf<com.example.marketinho.features.location.LocationInfo?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
 
-    // Launcher para pedir permissão
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -242,7 +250,6 @@ private fun ProductMainScreen(
         }
     }
 
-    // ========== COLUMN COM UI ==========
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -274,24 +281,12 @@ private fun ProductMainScreen(
         }
 
         CameraSection(
-            onImageCaptured = viewModel::captureImage,
+            onImageCaptured = { uri ->
+                Log.d("MainActivity", "📸 Imagem capturada: $uri")
+                viewModel.captureImage(uri)
+            },
             modifier = Modifier.fillMaxWidth()
         )
-
-        if (viewModel.imageUri != null) {
-            ProductProcessingSection(
-                imageUri = viewModel.imageUri!!,
-                onAddProduct = {
-                    viewModel.processImageWithOCR(
-                        context = context,
-                        onManualSelection = { viewModel.setShowMarkingScreen(true) }
-                    )
-                },
-                onManualSelection = {
-                    viewModel.setShowMarkingScreen(true)
-                }
-            )
-        }
 
         TotalCard(total = total)
 
@@ -339,20 +334,14 @@ private fun ProductMainScreen(
         }
     }
 
-    // ========== DIÁLOGOS (FORA DA COLUMN) ==========
-
-    // Diálogo de seleção de pagamento
     if (showPaymentDialog) {
         PaymentMethodDialog(
             onDismiss = { showPaymentDialog = false },
             onConfirm = { paymentMethod ->
                 showPaymentDialog = false
                 selectedPaymentMethod = paymentMethod.displayName
-
-                // Após selecionar pagamento, pedir localização
                 showLocationDialog = true
 
-                // Verificar e pedir permissão de localização
                 if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
                     isLoadingLocation = true
                     kotlinx.coroutines.MainScope().launch {
@@ -371,7 +360,6 @@ private fun ProductMainScreen(
         )
     }
 
-    // Diálogo de confirmação de local
     if (showLocationDialog) {
         LocationConfirmationDialog(
             locationInfo = locationInfo,
@@ -379,7 +367,6 @@ private fun ProductMainScreen(
             onConfirm = { marketName, address ->
                 showLocationDialog = false
 
-                // Salva a compra com todos os dados
                 purchaseViewModel.savePurchase(
                     products = products,
                     total = total,

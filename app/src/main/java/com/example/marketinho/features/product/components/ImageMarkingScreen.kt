@@ -1,28 +1,11 @@
 package com.example.marketinho.features.product.components
 
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -50,23 +33,17 @@ import kotlin.math.roundToInt
 fun ImageMarkingScreen(
     viewModel: ProductViewModel,
     imageUri: Uri,
-    onSelectionDone: (String, String, Int) -> Unit,
+    onSelectionDone: (String, String, Int, String?) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
-    var selectionStep by remember { mutableStateOf("name") }
+    var selectionStep by remember { mutableStateOf("name") } // "name", "price" ou "category"
     var detectedTexts by remember { mutableStateOf<List<Pair<Rect, String>>>(emptyList()) }
     var selectedName by remember { mutableStateOf<Pair<Rect, String>?>(null) }
     var selectedPrice by remember { mutableStateOf<Pair<Rect, String>?>(null) }
+    var selectedCategory by remember { mutableStateOf<ProductCategory?>(null) }
     var quantity by remember { mutableStateOf(1) }
     var showQuantityDialog by remember { mutableStateOf(false) }
-
-    // NOVO: Sugestão de categoria baseada no nome selecionado
-    val suggestedCategory = remember(selectedName?.second) {
-        selectedName?.second?.let { name ->
-            ProductCategory.suggestFromName(name)
-        }
-    }
 
     val bitmap = remember(imageUri) {
         try {
@@ -106,143 +83,162 @@ fun ImageMarkingScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Título com indicação da etapa
+        // Título do passo atual
         Text(
             text = when (selectionStep) {
-                "name" -> "Toque para selecionar o NOME do produto"
-                else -> "Toque para selecionar o PREÇO do produto"
+                "name" -> "1️⃣ Toque para selecionar o NOME do produto"
+                "price" -> "2️⃣ Toque para selecionar o PREÇO do produto"
+                else -> "3️⃣ Selecione a categoria (opcional)"
             },
             style = MaterialTheme.typography.titleMedium
         )
 
-        // Box com a imagem e detecção
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(imageSize.width / imageSize.height)
-                .pointerInput(selectionStep, detectedTexts) {
-                    detectTapGestures { tapOffset ->
-                        val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
-                        val imageOffset = tapOffset.toImageCoordinates(imageSize, canvasSize)
+        // Canvas com imagem (apenas para nome e preço)
+        if (selectionStep != "category") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(imageSize.width / imageSize.height)
+                    .pointerInput(selectionStep, detectedTexts) {
+                        detectTapGestures { tapOffset ->
+                            val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
+                            val imageOffset = tapOffset.toImageCoordinates(imageSize, canvasSize)
 
-                        if (imageOffset != Offset.Zero) {
-                            detectedTexts.firstOrNull { (rect, _) ->
-                                rect.contains(imageOffset)
-                            }?.let { (rect, text) ->
-                                when (selectionStep) {
-                                    "name" -> {
-                                        selectedName = rect to text
-                                        selectionStep = "price"
-                                    }
-
-                                    "price" -> {
-                                        val cleanPrice = ImageUtils.extractPriceValue(text)
-                                        selectedPrice = rect to cleanPrice
+                            if (imageOffset != Offset.Zero) {
+                                detectedTexts.firstOrNull { (rect, _) ->
+                                    rect.contains(imageOffset)
+                                }?.let { (rect, text) ->
+                                    when (selectionStep) {
+                                        "name" -> {
+                                            selectedName = rect to text
+                                            selectionStep = "price"
+                                        }
+                                        "price" -> {
+                                            val cleanPrice = ImageUtils.extractPriceValue(text)
+                                            selectedPrice = rect to cleanPrice
+                                            selectionStep = "category"
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                .drawBehind {
-                    val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
+                    .drawBehind {
+                        val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
 
-                    bitmap?.let { bmp ->
-                        val imageBitmap = bmp.asImageBitmap()
-                        val imageRatio = bmp.width.toFloat() / bmp.height.toFloat()
-                        val canvasRatio = canvasSize.width / canvasSize.height
+                        bitmap?.let { bmp ->
+                            val imageBitmap = bmp.asImageBitmap()
+                            val imageRatio = bmp.width.toFloat() / bmp.height.toFloat()
+                            val canvasRatio = canvasSize.width / canvasSize.height
 
-                        val (width, height) = if (imageRatio > canvasRatio) {
-                            Pair(canvasSize.width, canvasSize.width / imageRatio)
-                        } else {
-                            Pair(canvasSize.height * imageRatio, canvasSize.height)
+                            val (width, height) = if (imageRatio > canvasRatio) {
+                                Pair(canvasSize.width, canvasSize.width / imageRatio)
+                            } else {
+                                Pair(canvasSize.height * imageRatio, canvasSize.height)
+                            }
+
+                            val offsetX = (canvasSize.width - width) / 2
+                            val offsetY = (canvasSize.height - height) / 2
+
+                            drawImage(
+                                image = imageBitmap,
+                                dstOffset = IntOffset(offsetX.roundToInt(), offsetY.roundToInt()),
+                                dstSize = IntSize(width.roundToInt(), height.roundToInt())
+                            )
                         }
 
-                        val offsetX = (canvasSize.width - width) / 2
-                        val offsetY = (canvasSize.height - height) / 2
+                        detectedTexts.forEach { (rect, _) ->
+                            val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
+                            drawRect(
+                                color = Color.Green.copy(alpha = 0.3f),
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Fill
+                            )
+                            drawRect(
+                                color = Color.Green,
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Stroke(width = 1f)
+                            )
+                        }
 
-                        drawImage(
-                            image = imageBitmap,
-                            dstOffset = IntOffset(offsetX.roundToInt(), offsetY.roundToInt()),
-                            dstSize = IntSize(width.roundToInt(), height.roundToInt())
-                        )
+                        selectedName?.let { (rect, _) ->
+                            val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
+                            drawRect(
+                                color = Color.Green.copy(alpha = 0.5f),
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Fill
+                            )
+                            drawRect(
+                                color = Color.Green,
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Stroke(width = 3f)
+                            )
+                        }
+
+                        selectedPrice?.let { (rect, _) ->
+                            val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
+                            drawRect(
+                                color = Color.Blue.copy(alpha = 0.5f),
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Fill
+                            )
+                            drawRect(
+                                color = Color.Blue,
+                                topLeft = transformedRect.topLeft,
+                                size = transformedRect.size,
+                                style = Stroke(width = 3f)
+                            )
+                        }
                     }
+            )
+        }
 
-                    // Desenha textos detectados
-                    detectedTexts.forEach { (rect, _) ->
-                        val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
-                        drawRect(
-                            color = Color.Green.copy(alpha = 0.3f),
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Fill
-                        )
-                        drawRect(
-                            color = Color.Green,
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Stroke(width = 1f)
-                        )
-                    }
-
-                    // Destaca nome selecionado
-                    selectedName?.let { (rect, _) ->
-                        val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
-                        drawRect(
-                            color = Color.Green.copy(alpha = 0.5f),
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Fill
-                        )
-                        drawRect(
-                            color = Color.Green,
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Stroke(width = 3f)
-                        )
-                    }
-
-                    // Destaca preço selecionado
-                    selectedPrice?.let { (rect, _) ->
-                        val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
-                        drawRect(
-                            color = Color.Blue.copy(alpha = 0.5f),
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Fill
-                        )
-                        drawRect(
-                            color = Color.Blue,
-                            topLeft = transformedRect.topLeft,
-                            size = transformedRect.size,
-                            style = Stroke(width = 3f)
-                        )
-                    }
-                }
-        )
-
-        // Mostra as seleções
+        // Informações selecionadas
         selectedName?.let { (_, text) ->
-            Text("Nome selecionado: $text", style = MaterialTheme.typography.bodyLarge)
-
-            // NOVO: Mostra categoria sugerida
-            suggestedCategory?.let { category ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(top = 4.dp)
-                ) {
-                    Text(
-                        "Categoria sugerida:",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    CategoryBadge(category = category)
-                }
-            }
+            Text("✅ Nome: $text", style = MaterialTheme.typography.bodyLarge)
         }
 
         selectedPrice?.let { (_, text) ->
-            Text("Preço selecionado: $text", style = MaterialTheme.typography.bodyLarge)
+            Text("✅ Preço: R$ $text", style = MaterialTheme.typography.bodyLarge)
+        }
+
+        // ✅ Dropdown de Categoria (aparece após selecionar nome e preço)
+        if (selectionStep == "category") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        "Categoria (opcional):",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+
+                    // ✅ Usando seu CategoryDropdown existente
+                    CategoryDropdown(
+                        selectedCategory = selectedCategory,
+                        onCategorySelected = { selectedCategory = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (selectedCategory != null) {
+                        CategoryBadge(
+                            category = selectedCategory!!,
+                            modifier = Modifier.align(androidx.compose.ui.Alignment.Start)
+                        )
+                    }
+                }
+            }
         }
 
         // Botões de navegação
@@ -269,11 +265,10 @@ fun ImageMarkingScreen(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
                     ) {
-                        Text("Voltar ao Nome")
+                        Text("← Voltar")
                     }
                 }
-
-                "quantity" -> {
+                "category" -> {
                     Button(
                         onClick = { selectionStep = "price" },
                         modifier = Modifier.weight(1f),
@@ -281,10 +276,9 @@ fun ImageMarkingScreen(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
                     ) {
-                        Text("Voltar ao Preço")
+                        Text("← Voltar")
                     }
                 }
-
                 else -> {
                     Spacer(modifier = Modifier.weight(1f))
                 }
@@ -292,13 +286,19 @@ fun ImageMarkingScreen(
 
             Button(
                 onClick = {
-                    if (selectedName != null && selectedPrice != null) {
+                    if (selectionStep == "category" && selectedName != null && selectedPrice != null) {
                         showQuantityDialog = true
                     }
                 },
-                enabled = selectedName != null && selectedPrice != null
+                enabled = selectionStep == "category" && selectedName != null && selectedPrice != null,
+                modifier = Modifier.weight(1f)
             ) {
-                Text("Confirmar")
+                Text(
+                    when (selectionStep) {
+                        "category" -> "Confirmar →"
+                        else -> "Selecione na imagem"
+                    }
+                )
             }
         }
 
@@ -310,18 +310,11 @@ fun ImageMarkingScreen(
                     quantity = newQuantity
                     showQuantityDialog = false
 
-                    // NOVO: Adiciona produto com categoria sugerida
-                    viewModel.addProduct(
-                        name = selectedName!!.second,
-                        price = selectedPrice!!.second,
-                        quantity = newQuantity,
-                        category = suggestedCategory?.name
-                    )
-
                     onSelectionDone(
                         selectedName!!.second,
                         selectedPrice!!.second,
-                        newQuantity
+                        newQuantity,
+                        selectedCategory?.name
                     )
                 },
                 onDismiss = { showQuantityDialog = false }

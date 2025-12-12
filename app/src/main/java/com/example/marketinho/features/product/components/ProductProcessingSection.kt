@@ -8,13 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,26 +18,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.example.marketinho.features.ocr.OcrProcessor
-import com.example.marketinho.features.product.Product
 
+/**
+ * Seção simplificada - apenas mostra imagem e botão para seleção manual
+ */
 @Composable
 fun ProductProcessingSection(
     imageUri: Uri?,
-    onAddProduct: (Product) -> Unit,
-    onManualSelection: () -> Unit
+    onManualSelection: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var isLoading by remember { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Preview da imagem
         if (imageUri != null) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUri)
                     .crossfade(true)
                     .build(),
-                contentDescription = "Foto do produto",
+                contentDescription = "Foto capturada",
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp),
@@ -60,36 +59,18 @@ fun ProductProcessingSection(
             }
         }
 
+        // ✅ ÚNICO BOTÃO: Selecionar texto e valor manualmente
         Button(
-            onClick = {
-                isLoading = true
-                OcrProcessor.processImageWithOCR(
-                    imageUri = imageUri!!,
-                    context = context,
-                    onSuccess = { name, price ->
-                        onAddProduct(
-                            Product(
-                                name = name,
-                                price = price.toDoubleOrNull() ?: 0.0,
-                                imageUri = imageUri.toString() // Convertemos Uri para String aqui
-                            )
-                        )
-                        isLoading = false
-                    },
-                    onFailure = {
-                        isLoading = false
-                        onManualSelection()
-                    }
-                )
-            },
+            onClick = onManualSelection,
             modifier = Modifier.fillMaxWidth(),
-            enabled = imageUri != null && !isLoading // Desabilita se não tiver imagem
+            enabled = imageUri != null
         ) {
-            if (isLoading) {
-                CircularProgressIndicator(color = Color.White)
-            } else {
-                Text(if (imageUri == null) "Selecione uma imagem primeiro" else "Ler Automaticamente")
-            }
+            Text(
+                if (imageUri == null)
+                    "Tire uma foto primeiro"
+                else
+                    "Selecionar Nome e Preço"
+            )
         }
     }
 }
