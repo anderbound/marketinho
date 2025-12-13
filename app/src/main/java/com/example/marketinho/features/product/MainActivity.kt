@@ -25,11 +25,14 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.marketinho.data.models.Market  // ✅ NOVO
 import com.example.marketinho.features.camera.CameraSection
+import com.example.marketinho.features.location.MarketRepository  // ✅ NOVO
 import com.example.marketinho.features.product.components.*
 import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
 import com.example.marketinho.features.auth.RegisterScreen
+import com.example.marketinho.features.location.components.LocationConfirmationDialog
 import com.example.marketinho.ui.theme.MarketinhoTheme
 import kotlinx.coroutines.launch
 
@@ -120,14 +123,14 @@ fun MarketinhoApp(
                 ImageMarkingScreen(
                     viewModel = productViewModel,
                     imageUri = productViewModel.currentImageUri!!,
-                    onSelectionDone = { name, price, quantity, category ->  // ✅ Recebe categoria
+                    onSelectionDone = { name, price, quantity, category ->
                         Log.d("MainActivity", "📝 Produto: $name, R$ $price (x$quantity), Categoria: ${category ?: "sem categoria"}")
 
                         productViewModel.addProduct(
                             name = name,
                             price = price,
                             quantity = quantity,
-                            category = category  // ✅ Passa categoria (pode ser null)
+                            category = category
                         )
                     },
                     onCancel = {
@@ -224,11 +227,18 @@ private fun ProductMainScreen(
         )
     )
 
+    // ✅ NOVO: Repository para buscar mercados
+    val marketRepository = remember { MarketRepository(context) }
+
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var selectedPaymentMethod by remember { mutableStateOf<String?>(null) }
     var locationInfo by remember { mutableStateOf<com.example.marketinho.features.location.LocationInfo?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
+
+    // ✅ NOVO: Estados para mercados
+    var nearbyMarkets by remember { mutableStateOf<List<Market>?>(null) }
+    var isSearchingMarkets by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -237,8 +247,26 @@ private fun ProductMainScreen(
         if (granted) {
             isLoadingLocation = true
             kotlinx.coroutines.MainScope().launch {
+                // 1️⃣ Obtém localização
                 locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                 isLoadingLocation = false
+
+                // 2️⃣ Busca mercados próximos
+                locationInfo?.geoPoint?.let { geoPoint ->
+                    isSearchingMarkets = true
+                    try {
+                        nearbyMarkets = marketRepository.findNearbyMarkets(
+                            location = geoPoint,
+                            radiusMeters = 500.0
+                        )
+                        Log.d("MainActivity", "✅ ${nearbyMarkets?.size ?: 0} mercados encontrados")
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "❌ Erro ao buscar mercados", e)
+                        nearbyMarkets = emptyList()
+                    } finally {
+                        isSearchingMarkets = false
+                    }
+                }
             }
         } else {
             isLoadingLocation = false
@@ -340,13 +368,36 @@ private fun ProductMainScreen(
             onConfirm = { paymentMethod ->
                 showPaymentDialog = false
                 selectedPaymentMethod = paymentMethod.displayName
+
+                // ✅ Reseta estados
+                locationInfo = null
+                nearbyMarkets = null
+
                 showLocationDialog = true
 
                 if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
                     isLoadingLocation = true
                     kotlinx.coroutines.MainScope().launch {
+                        // 1️⃣ GPS
                         locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                         isLoadingLocation = false
+
+                        // 2️⃣ Mercados
+                        locationInfo?.geoPoint?.let { geoPoint ->
+                            isSearchingMarkets = true
+                            try {
+                                nearbyMarkets = marketRepository.findNearbyMarkets(
+                                    location = geoPoint,
+                                    radiusMeters = 500.0
+                                )
+                                Log.d("MainActivity", "✅ ${nearbyMarkets?.size ?: 0} mercados encontrados")
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "❌ Erro ao buscar mercados", e)
+                                nearbyMarkets = emptyList()
+                            } finally {
+                                isSearchingMarkets = false
+                            }
+                        }
                     }
                 } else {
                     locationPermissionLauncher.launch(
@@ -364,8 +415,17 @@ private fun ProductMainScreen(
         LocationConfirmationDialog(
             locationInfo = locationInfo,
             isLoading = isLoadingLocation,
+            nearbyMarkets = nearbyMarkets,  // ✅ NOVO
+            isSearchingMarkets = isSearchingMarkets,  // ✅ NOVO
             onConfirm = { marketName, address ->
                 showLocationDialog = false
+
+                // ✅ NOVO: Incrementa contador de uso do mercado
+                nearbyMarkets?.find { it.name == marketName }?.let { market ->
+                    kotlinx.coroutines.MainScope().launch {
+                        marketRepository.markAsUsed(market.id)
+                    }
+                }
 
                 purchaseViewModel.savePurchase(
                     products = products,
@@ -382,7 +442,9 @@ private fun ProductMainScreen(
             onDismiss = {
                 showLocationDialog = false
                 locationInfo = null
+                nearbyMarkets = null  // ✅ NOVO
                 isLoadingLocation = false
+                isSearchingMarkets = false  // ✅ NOVO
             },
             onRetry = {
                 if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
@@ -390,6 +452,18 @@ private fun ProductMainScreen(
                     kotlinx.coroutines.MainScope().launch {
                         locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                         isLoadingLocation = false
+
+                        // ✅ NOVO: Busca mercados no retry também
+                        locationInfo?.geoPoint?.let { geoPoint ->
+                            isSearchingMarkets = true
+                            try {
+                                nearbyMarkets = marketRepository.findNearbyMarkets(geoPoint, 500.0)
+                            } catch (e: Exception) {
+                                nearbyMarkets = emptyList()
+                            } finally {
+                                isSearchingMarkets = false
+                            }
+                        }
                     }
                 } else {
                     locationPermissionLauncher.launch(
