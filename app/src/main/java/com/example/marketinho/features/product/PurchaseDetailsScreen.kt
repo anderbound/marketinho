@@ -1,5 +1,6 @@
 package com.example.marketinho.features.product
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,10 +10,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.marketinho.data.models.Purchase
+import com.example.marketinho.features.sharing.PurchaseShareHelper
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -22,6 +26,11 @@ fun PurchaseDetailsScreen(
     purchase: Purchase,
     navController: NavController
 ) {
+    // ✅ ADICIONADO: Estados para compartilhamento
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var isSharing by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -37,10 +46,43 @@ fun PurchaseDetailsScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = {
-                        // TODO: Implementar compartilhamento
-                    }) {
-                        Icon(Icons.Default.Share, "Compartilhar")
+                    // ✅ ATUALIZADO: Botão de compartilhar funcional
+                    IconButton(
+                        onClick = {
+                            isSharing = true
+                            PurchaseShareHelper.sharePurchase(
+                                purchase = purchase,
+                                context = context,
+                                scope = scope,
+                                onSuccess = { url, text ->
+                                    isSharing = false
+                                    Toast.makeText(
+                                        context,
+                                        "Link criado! Compartilhe com seus amigos.",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                                onError = { error ->
+                                    isSharing = false
+                                    Toast.makeText(
+                                        context,
+                                        "Erro: $error",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            )
+                        },
+                        enabled = !isSharing
+                    ) {
+                        if (isSharing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        } else {
+                            Icon(Icons.Default.Share, "Compartilhar")
+                        }
                     }
                 }
             )

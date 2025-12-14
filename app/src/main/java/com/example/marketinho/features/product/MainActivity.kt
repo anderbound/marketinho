@@ -2,6 +2,8 @@ package com.example.marketinho.features.product
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -9,10 +11,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,30 +26,83 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.marketinho.data.models.Market  // ✅ NOVO
+import com.example.marketinho.data.models.Market
+import com.example.marketinho.data.models.SharedList
+import com.example.marketinho.data.models.SharedProduct
 import com.example.marketinho.features.camera.CameraSection
-import com.example.marketinho.features.location.MarketRepository  // ✅ NOVO
+import com.example.marketinho.features.location.MarketRepository
 import com.example.marketinho.features.product.components.*
 import com.example.marketinho.features.auth.AuthViewModel
 import com.example.marketinho.features.auth.LoginScreen
 import com.example.marketinho.features.auth.RegisterScreen
 import com.example.marketinho.features.location.components.LocationConfirmationDialog
+import com.example.marketinho.features.sharing.SharingRepository
+import com.example.marketinho.features.sharing.components.ShareListDialog
+import com.example.marketinho.features.sharing.components.SharedListViewScreen
 import com.example.marketinho.ui.theme.MarketinhoTheme
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // ✅ Captura Deep Link quando app abre
+        val deepLinkShareId = extractShareIdFromIntent(intent)
+
         setContent {
             MarketinhoTheme {
-                MainContent()
+                MainContent(initialShareId = deepLinkShareId)
             }
         }
+    }
+
+    // ✅ Captura Deep Link quando app já está aberto
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        val shareId = extractShareIdFromIntent(intent)
+        if (shareId != null) {
+            Log.d("MainActivity", "🔗 Deep Link capturado (app já aberto): $shareId")
+            // Recarrega o Content com novo shareId
+            setContent {
+                MarketinhoTheme {
+                    MainContent(initialShareId = shareId)
+                }
+            }
+        }
+    }
+
+    /**
+     * Extrai o shareId do Deep Link
+     * Exemplos suportados:
+     * - https://marketinho.app/shared/A3X9K2
+     * - marketinho://shared/A3X9K2
+     */
+    private fun extractShareIdFromIntent(intent: Intent?): String? {
+        val data: Uri? = intent?.data
+
+        if (data != null) {
+            Log.d("MainActivity", "🔗 Deep Link recebido: $data")
+
+            // Extrai shareId do path
+            val pathSegments = data.pathSegments
+            if (pathSegments.isNotEmpty()) {
+                // Pega o último segmento (ABC123)
+                val shareId = pathSegments.last()
+                if (shareId != "shared" && shareId.isNotBlank()) {
+                    Log.d("MainActivity", "✅ ShareId extraído: $shareId")
+                    return shareId
+                }
+            }
+        }
+
+        return null
     }
 }
 
 @Composable
-private fun MainContent() {
+private fun MainContent(initialShareId: String? = null) {
     val authViewModel: AuthViewModel = viewModel(
         factory = AuthViewModelFactory(LocalContext.current.applicationContext as Application)
     )
@@ -58,7 +112,10 @@ private fun MainContent() {
     key(isAuthenticated) {
         when {
             isAuthenticated -> {
-                MarketinhoApp(authViewModel = authViewModel)
+                MarketinhoApp(
+                    authViewModel = authViewModel,
+                    initialShareId = initialShareId
+                )
             }
             showRegisterScreen -> {
                 RegisterScreen(
@@ -87,6 +144,7 @@ private fun MainContent() {
 @Composable
 fun MarketinhoApp(
     authViewModel: AuthViewModel,
+    initialShareId: String? = null,
     productViewModel: ProductViewModel = viewModel(
         factory = ProductViewModelFactory(
             LocalContext.current.applicationContext as Application
@@ -100,7 +158,14 @@ fun MarketinhoApp(
     val totalInCart by productViewModel.total.collectAsState(initial = 0.0)
     val isAuthenticated by authViewModel.isAuthenticated.collectAsState()
 
-    // Abre tela de seleção automaticamente após capturar foto
+    // ✅ Navega para lista compartilhada se houver Deep Link
+    LaunchedEffect(initialShareId) {
+        if (initialShareId != null) {
+            Log.d("MainActivity", "🔗 Navegando para lista compartilhada: $initialShareId")
+            navController.navigate("shared_list_view/$initialShareId")
+        }
+    }
+
     LaunchedEffect(productViewModel.imageUri) {
         if (productViewModel.imageUri != null && !productViewModel.showMarkingScreen) {
             Log.d("MainActivity", "📸 Foto capturada, abrindo tela de seleção")
@@ -207,6 +272,97 @@ fun MarketinhoApp(
                 }
             }
         }
+
+        // ✅ NOVA ROTA: Visualizar lista compartilhada
+        composable("shared_list_view/{shareId}") { backStackEntry ->
+            val shareId = backStackEntry.arguments?.getString("shareId") ?: return@composable
+            val sharingRepository = remember { SharingRepository() }
+
+            var sharedList by remember { mutableStateOf<SharedList?>(null) }
+            var isLoading by remember { mutableStateOf(true) }
+            var errorMessage by remember { mutableStateOf<String?>(null) }
+
+            // Carrega lista compartilhada
+            LaunchedEffect(shareId) {
+                Log.d("MainActivity", "📥 Carregando lista compartilhada: $shareId")
+                val result = sharingRepository.getSharedList(shareId)
+
+                result.onSuccess { list ->
+                    sharedList = list
+                    isLoading = false
+                    Log.d("MainActivity", "✅ Lista carregada: ${list.products.size} itens")
+                }.onFailure { error ->
+                    errorMessage = error.message
+                    isLoading = false
+                    Log.e("MainActivity", "❌ Erro ao carregar lista", error)
+                }
+            }
+
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator()
+                            Text("Carregando lista compartilhada...")
+                        }
+                    }
+                }
+
+                errorMessage != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.padding(32.dp)
+                        ) {
+                            Text(
+                                "❌ $errorMessage",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Button(onClick = { navController.navigate("main_screen") }) {
+                                Text("Voltar")
+                            }
+                        }
+                    }
+                }
+
+                sharedList != null -> {
+                    SharedListViewScreen(
+                        sharedList = sharedList!!,
+                        onBack = { navController.popBackStack() },
+                        onCopyToMyList = { products ->
+                            // Copia produtos para a lista do usuário
+                            products.forEach { sharedProduct ->
+                                productViewModel.addProduct(
+                                    name = sharedProduct.name,
+                                    price = sharedProduct.price.toString(),
+                                    quantity = sharedProduct.quantity,
+                                    category = sharedProduct.category
+                                )
+                            }
+
+                            android.widget.Toast.makeText(
+                                context,
+                                "${products.size} produtos copiados!",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+
+                            navController.navigate("main_screen")
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -227,18 +383,22 @@ private fun ProductMainScreen(
         )
     )
 
-    // ✅ NOVO: Repository para buscar mercados
     val marketRepository = remember { MarketRepository(context) }
+    val sharingRepository = remember { SharingRepository() }
 
     var showPaymentDialog by remember { mutableStateOf(false) }
     var showLocationDialog by remember { mutableStateOf(false) }
     var selectedPaymentMethod by remember { mutableStateOf<String?>(null) }
     var locationInfo by remember { mutableStateOf<com.example.marketinho.features.location.LocationInfo?>(null) }
     var isLoadingLocation by remember { mutableStateOf(false) }
-
-    // ✅ NOVO: Estados para mercados
     var nearbyMarkets by remember { mutableStateOf<List<Market>?>(null) }
     var isSearchingMarkets by remember { mutableStateOf(false) }
+
+    var showShareDialog by remember { mutableStateOf(false) }
+    var isGeneratingLink by remember { mutableStateOf(false) }
+    var shareId by remember { mutableStateOf<String?>(null) }
+    var shareUrl by remember { mutableStateOf<String?>(null) }
+    var shareText by remember { mutableStateOf<String?>(null) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -247,11 +407,9 @@ private fun ProductMainScreen(
         if (granted) {
             isLoadingLocation = true
             kotlinx.coroutines.MainScope().launch {
-                // 1️⃣ Obtém localização
                 locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                 isLoadingLocation = false
 
-                // 2️⃣ Busca mercados próximos
                 locationInfo?.geoPoint?.let { geoPoint ->
                     isSearchingMarkets = true
                     try {
@@ -296,15 +454,32 @@ private fun ProductMainScreen(
                 Text("Histórico")
             }
 
-            Button(
-                onClick = {
-                    authViewModel.signOut()
-                },
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Sair")
+                if (products.size >= 2) {
+                    IconButton(
+                        onClick = { showShareDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Compartilhar lista",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        authViewModel.signOut()
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Sair")
+                }
             }
         }
 
@@ -362,6 +537,54 @@ private fun ProductMainScreen(
         }
     }
 
+    if (showShareDialog) {
+        ShareListDialog(
+            isGeneratingLink = isGeneratingLink,
+            shareId = shareId,
+            shareUrl = shareUrl,
+            shareText = shareText,
+            onDismiss = {
+                showShareDialog = false
+                shareId = null
+                shareUrl = null
+                shareText = null
+            },
+            onGenerateLink = {
+                isGeneratingLink = true
+                kotlinx.coroutines.MainScope().launch {
+                    val result = sharingRepository.createSharedList(
+                        products = products,
+                        total = total,
+                        marketName = locationInfo?.marketName,
+                        marketLocation = locationInfo?.geoPoint
+                    )
+
+                    result.onSuccess { id ->
+                        shareId = id
+                        // ✅ USA GITHUB PAGES - Link clicável no WhatsApp!
+                        shareUrl = sharingRepository.generateShareUrl(id)
+
+                        sharingRepository.getSharedList(id).onSuccess { sharedList ->
+                            // ✅ Texto com link do GitHub Pages
+                            shareText = sharingRepository.generateShareText(sharedList, id)
+                        }
+
+                        Log.d("MainActivity", "✅ Link criado: $shareUrl")
+                    }.onFailure { error ->
+                        Log.e("MainActivity", "❌ Erro ao gerar link", error)
+                        android.widget.Toast.makeText(
+                            context,
+                            "Erro ao gerar link: ${error.message}",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    isGeneratingLink = false
+                }
+            }
+        )
+    }
+
     if (showPaymentDialog) {
         PaymentMethodDialog(
             onDismiss = { showPaymentDialog = false },
@@ -369,7 +592,6 @@ private fun ProductMainScreen(
                 showPaymentDialog = false
                 selectedPaymentMethod = paymentMethod.displayName
 
-                // ✅ Reseta estados
                 locationInfo = null
                 nearbyMarkets = null
 
@@ -378,11 +600,9 @@ private fun ProductMainScreen(
                 if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
                     isLoadingLocation = true
                     kotlinx.coroutines.MainScope().launch {
-                        // 1️⃣ GPS
                         locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                         isLoadingLocation = false
 
-                        // 2️⃣ Mercados
                         locationInfo?.geoPoint?.let { geoPoint ->
                             isSearchingMarkets = true
                             try {
@@ -415,12 +635,11 @@ private fun ProductMainScreen(
         LocationConfirmationDialog(
             locationInfo = locationInfo,
             isLoading = isLoadingLocation,
-            nearbyMarkets = nearbyMarkets,  // ✅ NOVO
-            isSearchingMarkets = isSearchingMarkets,  // ✅ NOVO
+            nearbyMarkets = nearbyMarkets,
+            isSearchingMarkets = isSearchingMarkets,
             onConfirm = { marketName, address ->
                 showLocationDialog = false
 
-                // ✅ NOVO: Incrementa contador de uso do mercado
                 nearbyMarkets?.find { it.name == marketName }?.let { market ->
                     kotlinx.coroutines.MainScope().launch {
                         marketRepository.markAsUsed(market.id)
@@ -442,9 +661,9 @@ private fun ProductMainScreen(
             onDismiss = {
                 showLocationDialog = false
                 locationInfo = null
-                nearbyMarkets = null  // ✅ NOVO
+                nearbyMarkets = null
                 isLoadingLocation = false
-                isSearchingMarkets = false  // ✅ NOVO
+                isSearchingMarkets = false
             },
             onRetry = {
                 if (com.example.marketinho.features.location.LocationHelper.hasLocationPermission(context)) {
@@ -453,7 +672,6 @@ private fun ProductMainScreen(
                         locationInfo = com.example.marketinho.features.location.LocationHelper.getLocationInfo(context)
                         isLoadingLocation = false
 
-                        // ✅ NOVO: Busca mercados no retry também
                         locationInfo?.geoPoint?.let { geoPoint ->
                             isSearchingMarkets = true
                             try {

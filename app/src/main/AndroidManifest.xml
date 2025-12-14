@@ -27,11 +27,38 @@
             android:name=".features.product.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
-            android:theme="@style/Theme.Marketinho">
+            android:theme="@style/Theme.Marketinho"
+            android:launchMode="singleTask">
+
+            <!-- Intent filter principal (launcher) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- ✅ DEEP LINK: Custom Scheme (sempre funciona) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- marketinho://shared/ABC123 -->
+                <data
+                    android:scheme="marketinho"
+                    android:host="shared" />
+            </intent-filter>
+
+            <!-- ✅ DEEP LINK: HTTPS (quando tiver domínio) -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <!-- https://marketinho.app/shared/ABC123 -->
+                <data
+                    android:scheme="https"
+                    android:host="marketinho.app"
+                    android:pathPrefix="/shared" />
             </intent-filter>
         </activity>
     </application>
