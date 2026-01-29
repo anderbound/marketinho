@@ -31,11 +31,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.example.marketinho.data.models.ProductCategory
+import com.example.marketinho.data.models.StandardProduct
+import com.example.marketinho.data.repositories.StandardProductRepository
 import com.example.marketinho.features.ocr.OcrProcessor
 import com.example.marketinho.features.product.ProductViewModel
 import com.example.marketinho.features.product.utils.GeometryUtils.toImageCoordinates
 import com.example.marketinho.features.product.utils.GeometryUtils.transformToCanvasBounds
 import com.example.marketinho.features.product.utils.ImageUtils
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 @Composable
@@ -46,6 +49,12 @@ fun ImageMarkingScreen(
     onCancel: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // ✅ Repository de produtos padronizados
+    val standardProductRepo = remember { StandardProductRepository(context) }
+
+    // Estados existentes
     var selectionStep by remember { mutableStateOf("name") }
     var detectedTexts by remember { mutableStateOf<List<Pair<Rect, String>>>(emptyList()) }
     var selectedName by remember { mutableStateOf<Pair<Rect, String>?>(null) }
@@ -53,6 +62,11 @@ fun ImageMarkingScreen(
     var selectedCategory by remember { mutableStateOf<ProductCategory?>(null) }
     var quantity by remember { mutableStateOf(1) }
     var showQuantityDialog by remember { mutableStateOf(false) }
+
+    // ✅ NOVOS: Estados para sugestões
+    var showSuggestionDialog by remember { mutableStateOf(false) }
+    var productSuggestions by remember { mutableStateOf<List<StandardProduct>>(emptyList()) }
+    var selectedStandardProduct by remember { mutableStateOf<StandardProduct?>(null) }
 
     val bitmap = remember(imageUri) {
         try {
@@ -68,6 +82,13 @@ fun ImageMarkingScreen(
             Size(bitmap.width.toFloat(), bitmap.height.toFloat())
         } else {
             Size.Zero
+        }
+    }
+
+    // ✅ Popular banco na primeira vez
+    LaunchedEffect(Unit) {
+        scope.launch {
+            standardProductRepo.seedInitialProducts()
         }
     }
 
@@ -89,19 +110,17 @@ fun ImageMarkingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars) // ✅ Evita botões do sistema
+            .windowInsetsPadding(WindowInsets.systemBars)
             .padding(horizontal = 16.dp)
-            .padding(top = 24.dp, bottom = 16.dp), // ✅ Espaçamento extra
+            .padding(top = 24.dp, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // ✅ Card com instruções visuais melhoradas
         InstructionCard(
             step = selectionStep,
             selectedName = selectedName?.second,
             selectedPrice = selectedPrice?.second
         )
 
-        // Canvas com imagem
         if (selectionStep != "category") {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -123,7 +142,20 @@ fun ImageMarkingScreen(
                                         when (selectionStep) {
                                             "name" -> {
                                                 selectedName = rect to text
-                                                selectionStep = "price"
+
+                                                // ✅ Busca sugestões no banco
+                                                scope.launch {
+                                                    val suggestions = standardProductRepo.findSuggestions(text, limit = 5)
+
+                                                    if (suggestions.isNotEmpty()) {
+                                                        // Encontrou sugestões - mostra dialog
+                                                        productSuggestions = suggestions
+                                                        showSuggestionDialog = true
+                                                    } else {
+                                                        // Não encontrou - vai direto para preço
+                                                        selectionStep = "price"
+                                                    }
+                                                }
                                             }
                                             "price" -> {
                                                 val cleanPrice = ImageUtils.extractPriceValue(text)
@@ -138,7 +170,6 @@ fun ImageMarkingScreen(
                         .drawBehind {
                             val canvasSize = Size(size.width.toFloat(), size.height.toFloat())
 
-                            // Desenha imagem
                             bitmap?.let { bmp ->
                                 val imageBitmap = bmp.asImageBitmap()
                                 val imageRatio = bmp.width.toFloat() / bmp.height.toFloat()
@@ -160,11 +191,9 @@ fun ImageMarkingScreen(
                                 )
                             }
 
-                            // ✅ Destaca apenas textos relevantes para o passo atual
                             detectedTexts.forEach { (rect, text) ->
                                 val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
 
-                                // Cor baseada no passo e tipo de texto
                                 val (borderColor, fillColor) = when {
                                     selectionStep == "name" -> {
                                         Pair(Color(0xFF4CAF50), Color(0xFF4CAF50).copy(alpha = 0.2f))
@@ -194,7 +223,6 @@ fun ImageMarkingScreen(
                                 )
                             }
 
-                            // ✅ Destaca seleção do NOME com borda verde grossa
                             selectedName?.let { (rect, _) ->
                                 val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
                                 drawRect(
@@ -211,7 +239,6 @@ fun ImageMarkingScreen(
                                 )
                             }
 
-                            // ✅ Destaca seleção do PREÇO com borda azul grossa
                             selectedPrice?.let { (rect, _) ->
                                 val transformedRect = rect.transformToCanvasBounds(imageSize, canvasSize)
                                 drawRect(
@@ -232,7 +259,6 @@ fun ImageMarkingScreen(
             }
         }
 
-        // ✅ Preview das seleções (sempre visível quando há seleções)
         AnimatedVisibility(
             visible = selectedName != null || selectedPrice != null,
             enter = expandVertically() + fadeIn(),
@@ -244,7 +270,6 @@ fun ImageMarkingScreen(
             )
         }
 
-        // ✅ Seleção de Categoria
         AnimatedVisibility(
             visible = selectionStep == "category",
             enter = expandVertically() + fadeIn(),
@@ -258,7 +283,6 @@ fun ImageMarkingScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // ✅ Botões de ação melhorados (com padding do fundo)
         Column(modifier = Modifier.padding(bottom = 8.dp)) {
             ActionButtons(
                 selectionStep = selectionStep,
@@ -280,6 +304,77 @@ fun ImageMarkingScreen(
         }
     }
 
+    // ✅ Dialog de sugestão
+    if (showSuggestionDialog && selectedName != null) {
+        val bestMatch = productSuggestions.firstOrNull()
+
+        // Se tem um match muito bom (>85%), usa dialog simplificado
+        if (bestMatch != null && bestMatch.similarity(selectedName!!.second) > 0.85) {
+            QuickProductConfirmationDialog(
+                detectedName = selectedName!!.second,
+                suggestedProduct = bestMatch,
+                onConfirm = {
+                    selectedStandardProduct = bestMatch
+                    selectedCategory = bestMatch.category?.let {
+                        try { ProductCategory.valueOf(it) } catch (e: Exception) { null }
+                    }
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+
+                    scope.launch {
+                        standardProductRepo.recordUsage(
+                            productId = bestMatch.id,
+                            usedName = selectedName!!.second
+                        )
+                    }
+                },
+                onReject = {
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+                },
+                onDismiss = {
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+                }
+            )
+        } else {
+            ProductSuggestionDialog(
+                detectedName = selectedName!!.second,
+                suggestions = productSuggestions,
+                onSelectProduct = { product ->
+                    selectedStandardProduct = product
+                    selectedCategory = product.category?.let {
+                        try { ProductCategory.valueOf(it) } catch (e: Exception) { null }
+                    }
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+
+                    scope.launch {
+                        standardProductRepo.recordUsage(
+                            productId = product.id,
+                            usedName = selectedName!!.second
+                        )
+                    }
+                },
+                onCreateNew = {
+                    scope.launch {
+                        val newProduct = standardProductRepo.createStandardProduct(
+                            name = selectedName!!.second,
+                            category = selectedCategory?.name
+                        )
+                        selectedStandardProduct = newProduct
+                    }
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+                },
+                onDismiss = {
+                    showSuggestionDialog = false
+                    selectionStep = "price"
+                }
+            )
+        }
+    }
+
     // Diálogo de quantidade
     if (showQuantityDialog) {
         QuantityDialog(
@@ -287,6 +382,27 @@ fun ImageMarkingScreen(
             onConfirm = { newQuantity ->
                 quantity = newQuantity
                 showQuantityDialog = false
+
+                // ✅ Registra uso com preço
+                if (selectedStandardProduct != null && selectedPrice != null) {
+                    scope.launch {
+                        standardProductRepo.recordUsage(
+                            productId = selectedStandardProduct!!.id,
+                            usedName = selectedName!!.second,
+                            price = selectedPrice!!.second.toDoubleOrNull()
+                        )
+                    }
+                } else if (selectedName != null) {
+                    // Se não tinha match, cria novo produto
+                    scope.launch {
+                        standardProductRepo.createStandardProduct(
+                            name = selectedName!!.second,
+                            category = selectedCategory?.name,
+                            price = selectedPrice?.second?.toDoubleOrNull() ?: 0.0
+                        )
+                    }
+                }
+
                 onSelectionDone(
                     selectedName!!.second,
                     selectedPrice!!.second,
@@ -323,7 +439,6 @@ private fun InstructionCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Ícone animado
             val scale by rememberInfiniteTransition(label = "pulse").animateFloat(
                 initialValue = 1f,
                 targetValue = 1.15f,
@@ -384,7 +499,6 @@ private fun InstructionCard(
     }
 }
 
-// ✅ Card com preview das seleções
 @Composable
 private fun SelectionPreviewCard(
     selectedName: String?,
@@ -448,7 +562,6 @@ private fun SelectionPreviewCard(
     }
 }
 
-// ✅ Card de seleção de categoria
 @Composable
 private fun CategorySelectionCard(
     selectedCategory: ProductCategory?,
@@ -486,7 +599,6 @@ private fun CategorySelectionCard(
     }
 }
 
-// ✅ Botões de ação melhorados
 @Composable
 private fun ActionButtons(
     selectionStep: String,
@@ -499,34 +611,31 @@ private fun ActionButtons(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Botão Cancelar
         OutlinedButton(
             onClick = onCancel,
             modifier = Modifier.weight(1f),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.error
             ),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp) // ✅ Padding reduzido
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
         ) {
             Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(4.dp))
-            Text("Cancelar", maxLines = 1) // ✅ Força uma linha
+            Text("Cancelar", maxLines = 1)
         }
 
-        // Botão Voltar (aparece quando necessário)
         if (selectionStep != "name") {
             FilledTonalButton(
                 onClick = onBack,
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp) // ✅ Padding reduzido
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
             ) {
                 Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("Voltar", maxLines = 1) // ✅ Força uma linha
+                Text("Voltar", maxLines = 1)
             }
         }
 
-        // Botão Confirmar
         Button(
             onClick = onConfirm,
             enabled = canConfirm && selectionStep == "category",
@@ -534,13 +643,12 @@ private fun ActionButtons(
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF4CAF50)
             ),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp) // ✅ Padding reduzido
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp)
         ) {
-            // ✅ Ícone DEPOIS do texto para economizar espaço
             Text(
                 if (selectionStep == "category") "Confirmar" else "Aguarde",
                 fontWeight = FontWeight.Bold,
-                maxLines = 1 // ✅ Força uma linha
+                maxLines = 1
             )
             Spacer(Modifier.width(4.dp))
             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
